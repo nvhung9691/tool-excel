@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ToolExcel.Api</RootNamespace>
+    <AssemblyName>ToolExcel.Api</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Oracle ADO.NET provider: goi PKG_DYNAMIC_EXPORT (ref cursor), ghi H_DATA/T_DATA -->
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.5.1" />
+    <!-- Doc/ghi .xlsx (MIT license) -->
+    <PackageReference Include="ClosedXML" Version="0.104.1" />
+    <!-- Swagger -->
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
+  </ItemGroup>
+
+</Project>

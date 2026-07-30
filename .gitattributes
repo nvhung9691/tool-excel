@@ -1,0 +1,7 @@
+# Chuẩn hoá line-ending: chuẩn hoá về LF trong repo, tự xử lý khi checkout
+* text=auto
+
+# File nhị phân (không đụng)
+*.xlsx binary
+*.png binary
+*.jpg binary

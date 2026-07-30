@@ -1,0 +1,16 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+*.suo
+
+## Rider
+.idea/
+
+## Secrets — mật khẩu DB thật để ở đây, KHÔNG commit
+appsettings.Local.json
+appsettings.*.Local.json
+
+## Log của auto-push
+auto_push.log
