@@ -8,6 +8,13 @@
     <AssemblyName>ToolExcel.Api</AssemblyName>
   </PropertyGroup>
 
+  <!-- Khong bien dich thu muc test vao project API (test la project rieng ToolExcel.Tests) -->
+  <ItemGroup>
+    <Compile Remove="ToolExcel.Tests\**" />
+    <Content Remove="ToolExcel.Tests\**" />
+    <None Remove="ToolExcel.Tests\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Oracle ADO.NET provider: goi PKG_DYNAMIC_EXPORT (ref cursor), ghi H_DATA/T_DATA -->
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.5.1" />
