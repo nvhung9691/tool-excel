@@ -1,0 +1,33 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ToolExcel.Api", "backend\ToolExcel.Api.csproj", "{52CF6F1E-4385-4DFD-90FB-848831B0276B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "backend", "backend", "{8EB6C09C-5F52-45E6-AF09-18DC8A9468C5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ToolExcel.Tests", "backend\ToolExcel.Tests\ToolExcel.Tests.csproj", "{767501A6-212B-4D2D-8F88-3B571939F030}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{52CF6F1E-4385-4DFD-90FB-848831B0276B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{52CF6F1E-4385-4DFD-90FB-848831B0276B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{52CF6F1E-4385-4DFD-90FB-848831B0276B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{52CF6F1E-4385-4DFD-90FB-848831B0276B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{767501A6-212B-4D2D-8F88-3B571939F030}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{767501A6-212B-4D2D-8F88-3B571939F030}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{767501A6-212B-4D2D-8F88-3B571939F030}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{767501A6-212B-4D2D-8F88-3B571939F030}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{767501A6-212B-4D2D-8F88-3B571939F030} = {8EB6C09C-5F52-45E6-AF09-18DC8A9468C5}
+	EndGlobalSection
+EndGlobal

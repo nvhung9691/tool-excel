@@ -13,6 +13,8 @@ không dùng GitHub Actions.
 ## Chuẩn bị 1 lần trên máy .170
 
 1. Cài sẵn: **.NET SDK 8** và **git** (kiểm tra: `dotnet --version`, `git --version`).
+   Muốn có **giao diện quản trị** thì cài thêm **Node 20+** (`node --version`) — runner sẽ tự
+   `npm run build`. Không có Node thì runner bỏ qua bước đó, API vẫn chạy nhưng không có giao diện.
 2. Clone repo về (chọn 1 thư mục, ví dụ `D:\ci`):
    ```bat
    mkdir D:\ci & cd /d D:\ci
@@ -20,15 +22,23 @@ không dùng GitHub Actions.
    ```
    Lần clone đầu đăng nhập bằng **Personal Access Token** (như GIT_SETUP.md) để Windows nhớ
    credential cho các lần `git pull` sau.
-3. (Tuỳ chọn — để chạy thử endpoint export/import gọi Oracle thật) tạo file
-   `D:\ci\tool-excel\appsettings.Local.json` với mật khẩu DB thật:
+3. Tạo file `D:\ci\tool-excel\backend\appsettings.Local.json` (**chú ý: trong `backend\`**,
+   không phải thư mục gốc):
    ```json
-   { "Oracle": { "Connections": { "PB9": {
-     "ConnectionString": "User Id=APEX;Password=MAT_KHAU_THAT;Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.67.177)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCLPDB)));"
-   }}}}
+   {
+     "Oracle": { "Connections": {
+       "PB9":   { "ConnectionString": "User Id=APEX;Password=MAT_KHAU_APEX;Data Source=192.168.67.177:1521/ORCLPDB1;" },
+       "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=MAT_KHAU_PTAPP;Data Source=192.168.67.177:1521/ORCLPDB1;" }
+     }},
+     "Jwt": { "Key": "doi_thanh_chuoi_ngau_nhien_it_nhat_32_byte" }
+   }
    ```
-   File này đã được `.gitignore` bỏ qua nên không lên GitHub. Nếu chỉ cần build + unit test +
-   smoke `/health` thì **không bắt buộc** bước này (health không đụng DB).
+   File này đã được `.gitignore` bỏ qua nên không lên GitHub.
+
+   > `Jwt:Key` là **bắt buộc** — thiếu thì app dừng ngay lúc khởi động (smoke test sẽ FAIL).
+   > `PTAPP` cần cho đăng nhập (`PT_USER`) và cho việc kiểm phạm vi BUKRS; nếu `PT_USER` nằm
+   > cùng schema `APEX` thì đặt `"Auth": { "UserConnId": "PB9" }` thay vì khai `PTAPP`.
+   > `SERVICE_NAME`: `appsettings.json` đang dùng `ORCLPDB1` — kiểm lại cho khớp môi trường thật.
 
 ## Chạy runner
 
@@ -60,17 +70,37 @@ powershell -Command "Start-ScheduledTask -TaskName 'ToolExcel CI Test Runner'"
 
 ## "Test" gồm những gì
 
-- **Unit test** (`ToolExcel.Tests`): kiểm logic thuần — parse `EXCEL_COL` (C### → số cột),
-  cờ `HEADER='X'`, trích tham số `h_*`. Không cần DB.
-- **Smoke test**: build xong chạy API, gọi `GET /health` — chứng minh app khởi động được.
-- **Chạy thử endpoint thật** (export/import gọi Oracle): cần bước 3 ở trên; hiện làm **thủ công**
-  khi cần, ví dụ:
+- **Unit test** (`backend\ToolExcel.Tests`, 45 test): logic thuần, không cần DB — parse
+  `EXCEL_COL` (C### → số cột), cờ `HEADER='X'`, trích tham số `h_*`, hash `{bcrypt}`,
+  logic chặn BUKRS, dựng cây đơn vị `PT_T001`.
+- **Frontend build**: `npm ci` + `npm run build` trong `frontend\` → ra `backend\wwwroot\`.
+  Bỏ qua nếu máy chưa có Node (ghi log, không tính là FAIL).
+- **Smoke test**: build xong chạy API, gọi `GET /health`.
+
+  > `/health` nằm sau `FallbackPolicy` nên **không có token sẽ trả 401** — đó là app đã lên và
+  > đang bảo vệ đúng. Runner tính **cả 200 và 401** là PASS; chỉ khi không nối được cổng mới FAIL.
+
+- **Chạy thử endpoint thật** (export/import gọi Oracle): cần bước 3 ở trên, và cần **token**
+  vì mọi endpoint đều đã được bảo vệ. Hiện làm **thủ công**:
   ```bat
-  curl "http://localhost:5080/api/bieumau/KH18/export?connId=PB9&h_BUKRS=2100&h_YEAR=2026&h_PERIOD=7" -o test.xlsx
+  :: 1. lay token
+  curl -X POST http://localhost:5080/api/auth/token -H "Content-Type: application/json" ^
+       -d "{\"username\":\"apiexport\",\"password\":\"MAT_KHAU\"}"
+
+  :: 2. dung token goi bieu mau (thay <token> bang accessToken vua nhan)
+  curl -H "Authorization: Bearer <token>" ^
+       "http://localhost:5080/api/bieumau/KH18/export?connId=PB9&h_BUKRS=2100&h_YEAR=2026&h_PERIOD=7" ^
+       -o test.xlsx
   ```
+  Đổi `h_BUKRS` sang mã đơn vị **chưa gán** cho tài khoản đó → phải nhận **403** kèm
+  danh sách `allowedBukrs`.
+
+- **Giao diện quản trị**: mở `http://localhost:5080/` bằng tài khoản có vai trò `ADMIN`/`SUPER`.
 
 ## Ghi chú
 
 - Runner dùng `git pull --ff-only` — nếu ai đó sửa tay trên máy test gây lệch nhánh, pull sẽ báo
   lỗi trong log; khi đó `git reset --hard origin/main` trên máy test để đồng bộ lại.
-- Unit test fail hoặc smoke fail đều ghi `KET QUA: FAIL` trong `ci_test.log` để anh biết.
+- Runner pull **nhánh đang checkout**. Muốn test một nhánh feature thì
+  `git checkout <ten-nhanh>` một lần trên máy test, runner sẽ theo nhánh đó.
+- Unit test fail, frontend build fail hoặc smoke fail đều ghi `KET QUA: FAIL` trong `ci_test.log`.

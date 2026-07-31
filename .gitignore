@@ -8,6 +8,11 @@ obj/
 ## Rider
 .idea/
 
+## Frontend
+frontend/node_modules/
+# backend/wwwroot là output build của Vite (frontend/) — sinh lại bằng `npm run build`, không commit
+backend/wwwroot/
+
 ## Secrets — mật khẩu DB thật để ở đây, KHÔNG commit
 appsettings.Local.json
 appsettings.*.Local.json

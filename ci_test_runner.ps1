@@ -34,32 +34,57 @@ function Run-Pipeline {
   dotnet restore 2>&1 | ForEach-Object { Log "  $_" }
 
   Log "build (Release)..."
-  dotnet build ToolExcel.Api.csproj -c Release --nologo 2>&1 | ForEach-Object { Log "  $_" }
+  dotnet build backend\ToolExcel.Api.csproj -c Release --nologo 2>&1 | ForEach-Object { Log "  $_" }
   if ($LASTEXITCODE -ne 0) { Log "BUILD FAIL -> dung pipeline."; return $false }
 
   Log "unit test..."
-  dotnet test ToolExcel.Tests\ToolExcel.Tests.csproj -c Release --nologo 2>&1 | ForEach-Object { Log "  $_" }
+  dotnet test backend\ToolExcel.Tests\ToolExcel.Tests.csproj -c Release --nologo 2>&1 | ForEach-Object { Log "  $_" }
   if ($LASTEXITCODE -ne 0) { Log "UNIT TEST FAIL."; $ok = $false } else { Log "unit test PASS." }
+
+  # ---- frontend: chi build khi may co Node, khong co thi bo qua (khong tinh la FAIL) ----
+  if (Test-Path "frontend\package.json") {
+    if (Get-Command npm -ErrorAction SilentlyContinue) {
+      Log "frontend: npm ci + npm run build..."
+      Push-Location frontend
+      cmd /c "npm ci --no-audit --no-fund 2>&1" | ForEach-Object { Log "  $_" }
+      cmd /c "npm run build 2>&1"              | ForEach-Object { Log "  $_" }
+      $npmExit = $LASTEXITCODE
+      Pop-Location
+      if ($npmExit -ne 0) { Log "FRONTEND BUILD FAIL."; $ok = $false } else { Log "frontend build PASS." }
+    } else {
+      Log "frontend: bo qua (may nay chua cai Node/npm). Giao dien se khong co, API van chay."
+    }
+  }
 
   # ---- smoke: chay API, goi /health ----
   Log "smoke: khoi dong API tren cong $HealthPort ..."
   $env:ASPNETCORE_URLS = "http://localhost:$HealthPort"
   $env:ASPNETCORE_ENVIRONMENT = "Development"
   $proc = Start-Process dotnet `
-    -ArgumentList "run --project ToolExcel.Api.csproj -c Release --no-build" `
+    -ArgumentList "run --project backend\ToolExcel.Api.csproj -c Release --no-build" `
     -PassThru -WindowStyle Hidden
 
+  # /health nam sau FallbackPolicy nen KHONG co token se tra 401 — do la app da len va
+  # dang bao ve dung. Chi 200 hoac 401 moi tinh la song; khong noi duoc port = chet.
   $healthy = $false
+  $seen    = "khong ket noi duoc"
   foreach ($i in 1..20) {
     Start-Sleep -Seconds 2
     try {
       $r = Invoke-WebRequest -UseBasicParsing "http://localhost:$HealthPort/health" -TimeoutSec 3
+      $seen = $r.StatusCode
       if ($r.StatusCode -eq 200) { $healthy = $true; break }
-    } catch { }
+    } catch {
+      $code = $null
+      if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+      if ($code) { $seen = $code }
+      if ($code -eq 401) { $healthy = $true; break }
+    }
   }
   if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
 
-  if ($healthy) { Log "smoke PASS (/health = 200)." } else { Log "smoke FAIL (API khong len /health)."; $ok = $false }
+  if ($healthy) { Log "smoke PASS (/health = $seen; 401 = app da len, dang doi token)." }
+  else          { Log "smoke FAIL (/health: $seen)."; $ok = $false }
 
   if ($ok) { Log "===== KET QUA: PASS =====" } else { Log "===== KET QUA: FAIL =====" }
   return $ok
