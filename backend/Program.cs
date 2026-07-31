@@ -128,10 +128,16 @@ builder.Services.AddAuthorization(o =>
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+// Repo khong co launchSettings.json nen `dotnet run` chay o moi truong Production ->
+// truoc day khong the vao /swagger. Gio bat duoc bang cau hinh, khong phai doi moi truong:
+//   "Swagger": { "Enabled": true }
+// Mac dinh: bat o Development, tat o noi khac (Swagger liet ke toan bo endpoint).
+var swaggerEnabled = app.Configuration.GetValue("Swagger:Enabled", app.Environment.IsDevelopment());
+if (swaggerEnabled)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.Logger.LogInformation("Swagger UI dang bat tai /swagger");
 }
 
 app.UseHttpsRedirection();

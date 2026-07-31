@@ -88,6 +88,14 @@ dotnet run --project backend/ToolExcel.Api.csproj
 - Giao diện quản trị: `https://localhost:5001/`
 - Swagger: `https://localhost:5001/swagger`
 
+Repo **không có** `launchSettings.json`, nên `dotnet run` chạy ở môi trường `Production`. Swagger vì thế được bật bằng cấu hình chứ không theo môi trường:
+
+```json
+"Swagger": { "Enabled": true }
+```
+
+Mặc định trong `appsettings.json` là `true`. Trước khi lên PRD nên đặt `false` (Swagger liệt kê toàn bộ endpoint).
+
 `backend/wwwroot/` là **output build**, đã `.gitignore`. Nếu quên bước 1 thì API vẫn chạy bình thường, chỉ trang chủ trả về dòng nhắc chạy `npm run build` (chứ không phải 404 trắng).
 
 > ### ⚠️ `git pull` xong thì phải `npm run build` lại
@@ -196,6 +204,22 @@ GET /api/admin/users?q=&includeInactive=true&bukrs=&unassignedOnly=false&page=1&
 `page`/`pageSize` trong kết quả là giá trị **backend thực sự dùng** sau khi chuẩn hoá — frontend hiển thị theo đó, không theo tham số nó gửi đi.
 
 Ô tìm kiếm có **debounce 300ms**: gõ 6 ký tự chỉ sinh 1 lời gọi API thay vì 6. Số đếm `total` và danh sách dùng **chung một state đã tải xong**, nên trong lúc đang tải trang mới không xảy ra cảnh dòng tóm tắt ghi "301–312" mà bảng vẫn hiện dữ liệu trang cũ.
+
+## Tab "Thử API"
+
+Gọi thẳng endpoint từ trong giao diện, không cần curl hay Postman. Chỉ `ADMIN`/`SUPER` thấy tab này.
+
+| Khối | Dùng để |
+|---|---|
+| **Gọi bằng tài khoản nào** | Hiện phạm vi BUKRS của token đang dùng. Nhập tài khoản khác + mật khẩu → lấy token qua `POST /api/auth/token` và dùng token đó cho các lần gọi thử, **không phải đăng xuất** |
+| **Biểu mẫu** | Điền `FORM_CODE`, `connId`, `h_BUKRS`/`h_YEAR`/`h_PERIOD`/`h_DAY`/`h_WERKS` → xem trước URL → gọi `export` (nhận file `.xlsx` kèm nút Tải xuống) hoặc `import` (chọn file rồi upload) |
+| **Gọi endpoint bất kỳ** | Method + đường dẫn + body JSON, kèm vài mẫu nhanh bấm là điền sẵn |
+| **Kết quả** | Mã trạng thái, thời gian (ms), `Content-Type`, và body JSON đã format |
+
+Hai điểm khác biệt có chủ ý so với lời gọi bình thường của giao diện:
+
+- Gọi thử bị **401 không làm bạn bị đăng xuất** — 401 là kết quả cần xem, không phải sự cố phiên.
+- Cho phép dùng **token của tài khoản khác**, nên kiểm được phần chặn `h_BUKRS`: lấy token của một tài khoản không phải `SUPER`, gọi biểu mẫu với đơn vị chưa gán → phải nhận **403** kèm `allowedBukrs`.
 
 ### Chưa làm trong màn này
 

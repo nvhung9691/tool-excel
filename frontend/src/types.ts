@@ -28,6 +28,18 @@ export interface UserListItem {
   roles: string[]
 }
 
+/** Ket qua mot lan goi thu o tab "Thu API" — luon tra ve, khong bao gio nem. */
+export interface ProbeResult {
+  status: number
+  statusText: string
+  ms: number
+  contentType: string
+  /** Noi dung text (JSON da format neu la JSON). Null khi la file nhi phan. */
+  body: string | null
+  /** File tra ve (vd .xlsx) — de nut Tai xuong dung. */
+  file?: { name: string; size: number; url: string }
+}
+
 /** Bo loc danh sach nguoi dung. `bukrs` va `unassignedOnly` loai tru nhau. */
 export interface UserFilter {
   q: string

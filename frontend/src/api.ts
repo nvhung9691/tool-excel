@@ -1,6 +1,6 @@
 import type {
-  AssignBukrsRequest, CreateUserRequest, LoginResponse, OrgItem,
-  PagedResult, UpdateUserRequest, UserFilter, UserInfo, UserListItem,
+  AssignBukrsRequest, CreateUserRequest, LoginResponse, OrgItem, PagedResult,
+  ProbeResult, UpdateUserRequest, UserFilter, UserInfo, UserListItem,
 } from './types'
 
 const TOKEN_KEY = 'toolexcel.token'
@@ -47,6 +47,68 @@ async function readError(res: Response): Promise<string> {
     return JSON.stringify(body)
   } catch {
     return `Lỗi ${res.status} ${res.statusText}`
+  }
+}
+
+/**
+ * Goi mot endpoint bat ky va tra ve NGUYEN TRANG THAI, khong nem loi.
+ *
+ * Khac han <c>request()</c> o hai diem co y:
+ * - KHONG xoa token khi gap 401. Goi thu bi 401 la ket qua can xem, khong duoc lam
+ *   nguoi dang thu bi dang xuat.
+ * - Cho phep dung token cua tai khoan KHAC (tham so token) de thu quyen, ma khong
+ *   phai dang xuat khoi tai khoan quan tri.
+ */
+export async function probe(
+  method: string,
+  path: string,
+  opts: { token?: string | null; jsonBody?: string; formFile?: File } = {},
+): Promise<ProbeResult> {
+  const headers = new Headers()
+  const token = opts.token ?? getToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+
+  let body: BodyInit | undefined
+  if (opts.formFile) {
+    const fd = new FormData()
+    fd.append('file', opts.formFile)
+    body = fd   // KHONG tu dat Content-Type: browser phai tu them boundary
+  } else if (opts.jsonBody?.trim()) {
+    headers.set('Content-Type', 'application/json')
+    body = opts.jsonBody
+  }
+
+  const t0 = performance.now()
+  const res = await fetch(path, { method, headers, body })
+  const ms = Math.round(performance.now() - t0)
+  const contentType = res.headers.get('Content-Type') ?? ''
+
+  // Phai kiem CHINH XAC, khong dung tim chuoi con: content type cua .xlsx la
+  // "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" — co chua "xml",
+  // nen kieu kiem /xml/ se coi file Excel la text va lam mat nut Tai xuong. Da gap that.
+  const mime = contentType.split(';')[0].trim().toLowerCase()
+  const isText =
+    mime === '' ||
+    mime.startsWith('text/') ||
+    mime === 'application/json' ||
+    mime === 'application/problem+json' ||
+    mime === 'application/xml' ||
+    mime.endsWith('+json') ||
+    mime.endsWith('+xml')
+
+  if (isText) {
+    const raw = await res.text()
+    let pretty = raw
+    try { pretty = JSON.stringify(JSON.parse(raw), null, 2) } catch { /* khong phai JSON */ }
+    return { status: res.status, statusText: res.statusText, ms, contentType, body: pretty }
+  }
+
+  const blob = await res.blob()
+  const cd = res.headers.get('Content-Disposition') ?? ''
+  const name = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cd)?.[1] ?? 'ketqua.bin'
+  return {
+    status: res.status, statusText: res.statusText, ms, contentType, body: null,
+    file: { name: decodeURIComponent(name), size: blob.size, url: URL.createObjectURL(blob) },
   }
 }
 
