@@ -88,8 +88,7 @@ public sealed class UserScopeService : IUserScopeService
         if (roles.Any(r => string.Equals(r, SuperRole, StringComparison.OrdinalIgnoreCase)))
             return null;
 
-        await using var conn = _factory.Create(_auth.UserConnId);
-        await conn.OpenAsync(ct);
+        await using var conn = await _factory.OpenAsync(_auth.UserConnId, ct);
 
         await using var cmd = new OracleCommand(Sql, conn) { BindByName = true };
         cmd.Parameters.Add("u", username);

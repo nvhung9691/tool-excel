@@ -48,8 +48,8 @@ Ngoài ra cần `Auth:UserConnId` (connId trỏ tới schema `PT_APP` chứa `PT
 {
   "Oracle": {
     "Connections": {
-      "PB9":   { "ConnectionString": "User Id=APEX;Password=...;Data Source=192.168.67.177:1521/ORCLPDB1;" },
-      "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=...;Data Source=192.168.67.177:1521/ORCLPDB1;" }
+      "PB9":   { "ConnectionString": "User Id=APEX;Password=...;Data Source=(DESCRIPTION=(TRANSPORT_CONNECT_TIMEOUT=3)(CONNECT_TIMEOUT=5)(RETRY_COUNT=0)(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.67.177)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCLPDB1)));" },
+      "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=...;Data Source=(DESCRIPTION=(TRANSPORT_CONNECT_TIMEOUT=3)(CONNECT_TIMEOUT=5)(RETRY_COUNT=0)(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.67.177)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCLPDB1)));" }
     }
   },
   "Jwt": { "Key": "chuoi_ngau_nhien_it_nhat_32_byte_o_day" }
@@ -57,6 +57,20 @@ Ngoài ra cần `Auth:UserConnId` (connId trỏ tới schema `PT_APP` chứa `PT
 ```
 
 Thiếu `Jwt:Key` thì app **dừng ngay lúc khởi động** kèm thông báo rõ, không phải chạy lên rồi mỗi request mới lỗi.
+
+### Đừng bỏ `TRANSPORT_CONNECT_TIMEOUT` khỏi connection string
+
+`Connection Timeout=...` của ODP.NET **không có tác dụng** khi host Oracle không tới được — đo thực tế là **60 giây** mỗi lời gọi. Với 60 đơn vị cùng đóng kỳ, DB nghẽn là hàng loạt request treo 60 giây và cạn connection pool.
+
+Ba tham số TNS ở trên là thứ duy nhất làm driver tự bỏ sớm — đo được **3,4 giây** thay vì 60:
+
+| Tham số | Ý nghĩa |
+|---|---|
+| `TRANSPORT_CONNECT_TIMEOUT=3` | Giới hạn bắt tay TCP |
+| `CONNECT_TIMEOUT=5` | Giới hạn cả lượt kết nối (gồm xác thực) |
+| `RETRY_COUNT=0` | Không thử lại, tránh nhân thời gian chờ lên nhiều lần |
+
+Ngoài ra `Oracle:OpenTimeoutSeconds` (mặc định 10) là **lưới an toàn ở tầng ứng dụng**, chặn cả trường hợp connection string bị khai thiếu TNS timeout. Đặt `0` để tắt.
 
 ## Chạy
 

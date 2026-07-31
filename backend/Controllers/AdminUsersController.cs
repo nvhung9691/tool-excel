@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Oracle.ManagedDataAccess.Client;
+using ToolExcel.Api.Data;
 using ToolExcel.Api.Models;
 using ToolExcel.Api.Services;
 
@@ -112,7 +113,7 @@ public sealed class AdminUsersController : ControllerBase
         {
             return BadRequest(new { error = ex.Message });
         }
-        catch (OracleException ex)
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
         {
             _logger.LogError(ex, "Loi Oracle khi quan tri nguoi dung");
             return StatusCode(StatusCodes.Status503ServiceUnavailable,

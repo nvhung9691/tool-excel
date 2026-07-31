@@ -37,12 +37,8 @@ public sealed class UserAdminService : IUserAdminService
         _auth = auth.Value;
     }
 
-    private async Task<OracleConnection> OpenAsync(CancellationToken ct)
-    {
-        var conn = _factory.Create(_auth.UserConnId);
-        await conn.OpenAsync(ct);
-        return conn;
-    }
+    private Task<OracleConnection> OpenAsync(CancellationToken ct)
+        => _factory.OpenAsync(_auth.UserConnId, ct);
 
     // ---------------------------------------------------------------- doc
 
@@ -380,26 +376,36 @@ public sealed class UserAdminService : IUserAdminService
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct)) > 0;
     }
 
-    /// <summary>Do 2 truy van gop (BUKRS, ROLE_CODE) vao danh sach user da doc.</summary>
+    /// <summary>Gioi han cua danh sach IN trong Oracle la 1000 phan tu -> chia lo.</summary>
+    private const int InListChunk = 1000;
+
+    /// <summary>
+    /// Do BUKRS + ROLE_CODE vao danh sach user da doc, LOC theo dung cac user do
+    /// (khong quet ca PT_USER_ORG / PT_USER_ROLE).
+    /// </summary>
     private static async Task FillBukrsAndRolesAsync(
         OracleConnection conn, List<UserListItem> users, CancellationToken ct)
     {
         var bukrs = users.ToDictionary(u => u.Id, _ => new List<string>());
         var roles = users.ToDictionary(u => u.Id, _ => new List<string>());
 
+        // {0} duoc thay bang danh sach bind :u0,:u1,... — chi sinh tu ID so nguyen doc tu DB,
+        // khong nhan gi tu client, nen khong phai mat phoi injection.
         const string bukrsSql = @"
             SELECT uo.USER_ID, t.BUKRS
             FROM PT_USER_ORG uo JOIN PT_T001 t ON t.ID = uo.ORG_ID
+            WHERE uo.USER_ID IN ({0})
             ORDER BY uo.USER_ID, NVL(uo.IS_PRIMARY,'N') DESC, t.BUKRS";
 
         const string roleSql = @"
             SELECT ur.USER_ID, r.ROLE_CODE
             FROM PT_USER_ROLE ur JOIN PT_ROLE r ON r.ID = ur.ROLE_ID
-            WHERE r.IS_ACTIVE = 'Y'
+            WHERE r.IS_ACTIVE = 'Y' AND ur.USER_ID IN ({0})
             ORDER BY ur.USER_ID, r.ROLE_CODE";
 
-        await ReadPairsAsync(conn, bukrsSql, bukrs, ct);
-        await ReadPairsAsync(conn, roleSql, roles, ct);
+        var ids = users.Select(u => u.Id).ToList();
+        await ReadPairsAsync(conn, bukrsSql, ids, bukrs, ct);
+        await ReadPairsAsync(conn, roleSql, ids, roles, ct);
 
         foreach (var u in users)
         {
@@ -409,15 +415,26 @@ public sealed class UserAdminService : IUserAdminService
     }
 
     private static async Task ReadPairsAsync(
-        OracleConnection conn, string sql, Dictionary<long, List<string>> sink, CancellationToken ct)
+        OracleConnection conn, string sqlTemplate, List<long> userIds,
+        Dictionary<long, List<string>> sink, CancellationToken ct)
     {
-        await using var cmd = new OracleCommand(sql, conn) { BindByName = true };
-        await using var rd = await cmd.ExecuteReaderAsync(ct);
-        while (await rd.ReadAsync(ct))
+        for (var offset = 0; offset < userIds.Count; offset += InListChunk)
         {
-            var userId = Convert.ToInt64(rd.GetValue(0));
-            if (sink.TryGetValue(userId, out var list) && !rd.IsDBNull(1))
-                list.Add(rd.GetString(1).Trim());
+            var chunk = userIds.Skip(offset).Take(InListChunk).ToList();
+            var binds = string.Join(", ", chunk.Select((_, i) => $":u{i}"));
+
+            await using var cmd = new OracleCommand(string.Format(sqlTemplate, binds), conn)
+                { BindByName = true };
+            for (var i = 0; i < chunk.Count; i++)
+                cmd.Parameters.Add($"u{i}", chunk[i]);
+
+            await using var rd = await cmd.ExecuteReaderAsync(ct);
+            while (await rd.ReadAsync(ct))
+            {
+                var userId = Convert.ToInt64(rd.GetValue(0));
+                if (sink.TryGetValue(userId, out var list) && !rd.IsDBNull(1))
+                    list.Add(rd.GetString(1).Trim());
+            }
         }
     }
 

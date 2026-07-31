@@ -1,6 +1,8 @@
+using System.IO.Compression;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using ToolExcel.Api.Data;
@@ -13,6 +15,24 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 
 // ---- Services / DI ----
 builder.Services.AddControllers();
+
+// Nen bundle JS/CSS cua frontend: 154 kB -> ~50 kB. Chi khai cac MIME text-based;
+// KHONG them .xlsx vi file Excel da la zip, nen lai chi ton CPU ma khong nho hon.
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true; // noi bo, va cac file nay khong chua bi mat gi
+    o.Providers.Add<BrotliCompressionProvider>();
+    o.Providers.Add<GzipCompressionProvider>();
+    o.MimeTypes = new[]
+    {
+        "text/html", "text/css", "text/javascript", "text/plain",
+        "application/javascript", "application/json", "image/svg+xml"
+    };
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(
+    o => o.Level = CompressionLevel.Optimal);
+builder.Services.Configure<GzipCompressionProviderOptions>(
+    o => o.Level = CompressionLevel.Optimal);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -115,6 +135,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+// Phai dat TRUOC UseStaticFiles, khong thi file tinh da gui xong roi moi den luot nen.
+app.UseResponseCompression();
 
 // Frontend React da build (npm run build -> wwwroot). Static file la middleware chay truoc
 // routing nen KHONG bi FallbackPolicy doi token — dung vay, vi man dang nhap phai tai duoc
