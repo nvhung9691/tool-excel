@@ -1,6 +1,6 @@
 import type {
   AssignBukrsRequest, CreateUserRequest, LoginResponse, OrgItem,
-  PagedResult, UpdateUserRequest, UserInfo, UserListItem,
+  PagedResult, UpdateUserRequest, UserFilter, UserInfo, UserListItem,
 } from './types'
 
 const TOKEN_KEY = 'toolexcel.token'
@@ -61,13 +61,16 @@ export const api = {
 
   listOrgs: () => request<OrgItem[]>('/api/admin/orgs'),
 
-  listUsers: (q: string, includeInactive: boolean, page: number, pageSize: number) => {
+  listUsers: (f: UserFilter, page: number, pageSize: number) => {
     const p = new URLSearchParams({
-      includeInactive: String(includeInactive),
+      includeInactive: String(f.includeInactive),
       page: String(page),
       pageSize: String(pageSize),
     })
-    if (q.trim()) p.set('q', q.trim())
+    if (f.q.trim()) p.set('q', f.q.trim())
+    // Hai lua chon nay loai tru nhau — cung o mot dropdown ben UI.
+    if (f.unassignedOnly) p.set('unassignedOnly', 'true')
+    else if (f.bukrs) p.set('bukrs', f.bukrs)
     return request<PagedResult<UserListItem>>(`/api/admin/users?${p}`)
   },
 

@@ -28,6 +28,16 @@ export interface UserListItem {
   roles: string[]
 }
 
+/** Bo loc danh sach nguoi dung. `bukrs` va `unassignedOnly` loai tru nhau. */
+export interface UserFilter {
+  q: string
+  includeInactive: boolean
+  /** Ma don vi da gan TRUC TIEP (khong mo rong xuong cay con). Rong = moi don vi. */
+  bukrs: string
+  /** Chi nguoi dung chua gan don vi nao. Khi bat, `bukrs` bi bo qua. */
+  unassignedOnly: boolean
+}
+
 /** Mot trang ket qua. `page`/`pageSize` la gia tri backend THUC SU dung (da chuan hoa). */
 export interface PagedResult<T> {
   items: T[]

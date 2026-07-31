@@ -12,6 +12,13 @@ type Dialog =
 
 const PAGE_SIZES = [25, 50, 100, 200]
 
+/**
+ * Hai gia tri dac biet cua dropdown don vi. Dat tien to '#' vi BUKRS trong PT_T001 la
+ * VARCHAR2 ma nghiep vu — khong bao gio bat dau bang '#', nen khong the trung.
+ */
+const ORG_ALL = '#all'
+const ORG_NONE = '#none'
+
 export function UserAdmin() {
   // Giu CA TRANG trong 1 state thay vi tach items/page/total: neu tach, tom tat doc tu `page`
   // (doi ngay khi bam) con bang doc tu items (den sau) -> trong luc tai, tom tat ghi
@@ -20,6 +27,7 @@ export function UserAdmin() {
   const [orgs, setOrgs] = useState<OrgItem[]>([])
   const [q, setQ] = useState('')
   const [includeInactive, setIncludeInactive] = useState(true)
+  const [orgPick, setOrgPick] = useState(ORG_ALL)
   const [page, setPage] = useState(1)          // chi dung de GOI API
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [error, setError] = useState<string | null>(null)
@@ -37,7 +45,12 @@ export function UserAdmin() {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.listUsers(qDebounced, includeInactive, page, pageSize)
+      const res = await api.listUsers({
+        q: qDebounced,
+        includeInactive,
+        bukrs: orgPick === ORG_ALL || orgPick === ORG_NONE ? '' : orgPick,
+        unassignedOnly: orgPick === ORG_NONE,
+      }, page, pageSize)
       setData(res)
       // Backend keo trang vuot qua cuoi ve trang cuoi -> dong bo lai de nut Truoc/Sau dung.
       if (res.page !== page) setPage(res.page)
@@ -47,7 +60,7 @@ export function UserAdmin() {
     } finally {
       setLoading(false)
     }
-  }, [qDebounced, includeInactive, page, pageSize])
+  }, [qDebounced, includeInactive, orgPick, page, pageSize])
 
   useEffect(() => { void reload() }, [reload])
 
@@ -82,6 +95,21 @@ export function UserAdmin() {
       <div className="toolbar">
         <input className="search" placeholder="Tìm theo tên đăng nhập / họ tên…"
                value={q} onChange={e => changeFilter(() => setQ(e.target.value))} />
+
+        <label className="inline">
+          Đơn vị
+          <select className="org-filter" value={orgPick}
+                  onChange={e => changeFilter(() => setOrgPick(e.target.value))}>
+            <option value={ORG_ALL}>Tất cả đơn vị</option>
+            <option value={ORG_NONE}>— Chưa gán đơn vị —</option>
+            {orgs.map(o => (
+              <option key={o.id} value={o.bukrs}>
+                {' '.repeat(o.level * 2)}{o.bukrs} — {o.butxt}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="inline">
           <input type="checkbox" checked={includeInactive}
                  onChange={e => changeFilter(() => setIncludeInactive(e.target.checked))} />
@@ -94,6 +122,13 @@ export function UserAdmin() {
       </div>
 
       {error && <div className="alert error">{error}</div>}
+
+      {orgPick === ORG_NONE && !loading && total > 0 && (
+        <div className="alert warn">
+          {total} tài khoản chưa được gán đơn vị nào — mọi lời gọi
+          {' '}<code>/api/bieumau/*</code> của các tài khoản này sẽ bị chặn <b>403</b>.
+        </div>
+      )}
 
       <div className="card">
         <table>

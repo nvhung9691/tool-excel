@@ -147,16 +147,29 @@ Vào bằng tài khoản có vai trò `ADMIN` hoặc `SUPER`. Làm được:
 - **Sửa / tắt** — tắt là `IS_ACTIVE='N'` (xoá mềm), không xoá bản ghi.
 - **Đặt lại mật khẩu** — không cần mật khẩu cũ.
 - **Gán đơn vị (BUKRS)** — chọn nhiều đơn vị từ cây `PT_T001`, đánh dấu một đơn vị chính (`IS_PRIMARY='Y'`). Lưu là **thay toàn bộ** danh sách cũ.
-- **Tìm kiếm + phân trang** — xem mục dưới.
+- **Tìm kiếm, lọc theo đơn vị, phân trang** — xem mục dưới.
 
 Bảng DB tác động: `PT_USER` (ghi), `PT_USER_ORG` (ghi), `PT_T001` (chỉ đọc), `PT_USER_ROLE`/`PT_ROLE` (chỉ đọc để hiển thị).
+
+### Bộ lọc
+
+| Bộ lọc | Tham số | Ghi chú |
+|---|---|---|
+| Tên đăng nhập / họ tên | `q` | `LIKE` không phân biệt hoa thường, debounce 300ms ở UI |
+| Đơn vị | `bukrs` | Khớp **trực tiếp** trong `PT_USER_ORG` |
+| Chưa gán đơn vị | `unassignedOnly=true` | Bỏ qua `bukrs` nếu cùng truyền |
+| Hiện cả tài khoản đã tắt | `includeInactive` | Mặc định `true` |
+
+Lọc theo đơn vị là khớp **trực tiếp**, **không** mở rộng xuống cây con — cố ý, để lọc theo mã nào thì thấy đúng những dòng đang hiện mã đó ở cột `ĐƠN VỊ (BUKRS)`. Lưu ý điều này khác với lúc **chặn** `h_BUKRS` ở `/api/bieumau/*`: chỗ đó *có* mở rộng xuống cây con. Nên một tài khoản gán đơn vị cha sẽ **không** xuất hiện khi lọc theo đơn vị con, dù thực tế nó gọi được đơn vị con đó.
+
+Lựa chọn **"— Chưa gán đơn vị —"** trong dropdown liệt kê các tài khoản chưa có `BUKRS` nào; đây chính là những tài khoản sẽ bị **403** khi gọi `/api/bieumau/*`, nên màn hình hiện cảnh báo kèm số lượng.
 
 ### Phân trang
 
 Phân trang **ở phía server** (`OFFSET … FETCH NEXT` — cần Oracle 12c trở lên), không tải cả bảng về rồi cắt ở browser.
 
 ```
-GET /api/admin/users?q=&includeInactive=true&page=1&pageSize=25
+GET /api/admin/users?q=&includeInactive=true&bukrs=&unassignedOnly=false&page=1&pageSize=25
 ```
 
 ```json
@@ -168,7 +181,7 @@ GET /api/admin/users?q=&includeInactive=true&page=1&pageSize=25
 | `pageSize` mặc định 25, chọn được 25/50/100/200 | Chặn trần ở `Paging.MaxPageSize` = 200 |
 | `page` vượt quá trang cuối | Kéo về **trang cuối**, không trả bảng trống |
 | `page` ≤ 0 hoặc `pageSize` ≤ 0 | Về trang 1 / kích thước mặc định |
-| Đổi ô tìm kiếm, `includeInactive`, hay `pageSize` | Tự về trang 1 |
+| Đổi bất kỳ bộ lọc nào, hay `pageSize` | Tự về trang 1 |
 
 `page`/`pageSize` trong kết quả là giá trị **backend thực sự dùng** sau khi chuẩn hoá — frontend hiển thị theo đó, không theo tham số nó gửi đi.
 

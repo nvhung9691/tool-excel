@@ -7,9 +7,16 @@ namespace ToolExcel.Api.Services;
 
 public interface IUserAdminService
 {
-    /// <summary>Mot trang danh sach nguoi dung. <paramref name="q"/> loc theo username/ho ten.</summary>
+    /// <summary>
+    /// Mot trang danh sach nguoi dung.
+    /// <para><paramref name="q"/> loc theo username/ho ten;
+    /// <paramref name="bukrs"/> loc theo don vi da gan truc tiep;
+    /// <paramref name="unassignedOnly"/> chi lay nguoi dung CHUA gan don vi nao (khi bat, no
+    /// thang the <paramref name="bukrs"/>).</para>
+    /// </summary>
     Task<PagedResult<UserListItem>> ListAsync(
-        string? q, bool includeInactive, int page, int pageSize, CancellationToken ct);
+        string? q, bool includeInactive, string? bukrs, bool unassignedOnly,
+        int page, int pageSize, CancellationToken ct);
     Task<UserListItem?> GetAsync(long id, CancellationToken ct);
     Task<long> CreateAsync(CreateUserRequest req, string actor, CancellationToken ct);
     Task UpdateAsync(long id, UpdateUserRequest req, string actor, CancellationToken ct);
@@ -44,36 +51,60 @@ public sealed class UserAdminService : IUserAdminService
 
     // ---------------------------------------------------------------- doc
 
-    /// <summary>Dieu kien loc dung chung cho ca dem tong va lay trang, de khong lech nhau.</summary>
+    /// <summary>
+    /// Dieu kien loc dung chung cho ca dem tong va lay trang, de hai cau khong lech nhau.
+    /// <para>Loc theo BUKRS la khop TRUC TIEP trong PT_USER_ORG — dung nhung gi cot
+    /// "DON VI (BUKRS)" tren bang dang hien, khong mo rong xuong cay con. Nho vay loc theo
+    /// cai gi thi thay dung cai do.</para>
+    /// </summary>
     private const string ListWhere = @"
             WHERE (:q IS NULL
-                   OR UPPER(USERNAME)           LIKE '%' || UPPER(:q) || '%'
-                   OR UPPER(NVL(FULL_NAME,' ')) LIKE '%' || UPPER(:q) || '%')
-              AND (:inc = 'Y' OR IS_ACTIVE = 'Y')";
+                   OR UPPER(u.USERNAME)           LIKE '%' || UPPER(:q) || '%'
+                   OR UPPER(NVL(u.FULL_NAME,' ')) LIKE '%' || UPPER(:q) || '%')
+              AND (:inc = 'Y' OR u.IS_ACTIVE = 'Y')
+              AND (:bukrs IS NULL OR EXISTS (
+                       SELECT 1 FROM PT_USER_ORG uo
+                       JOIN PT_T001 t ON t.ID = uo.ORG_ID
+                       WHERE uo.USER_ID = u.ID AND UPPER(t.BUKRS) = UPPER(:bukrs)))
+              AND (:noorg = 'N' OR NOT EXISTS (
+                       SELECT 1 FROM PT_USER_ORG uo WHERE uo.USER_ID = u.ID))";
 
     public async Task<PagedResult<UserListItem>> ListAsync(
-        string? q, bool includeInactive, int page, int pageSize, CancellationToken ct)
+        string? q, bool includeInactive, string? bukrs, bool unassignedOnly,
+        int page, int pageSize, CancellationToken ct)
     {
-        const string countSql = "SELECT COUNT(*) FROM PT_USER" + ListWhere;
+        const string countSql = "SELECT COUNT(*) FROM PT_USER u" + ListWhere;
 
         // ORDER BY USERNAME du de xac dinh thu tu vi USERNAME la UNIQUE — khong co nguy co
         // mot ban ghi xuat hien o 2 trang hoac bi bo qua giua cac trang.
         const string pageSql = @"
-            SELECT ID, USERNAME, FULL_NAME, EMAIL, IS_ACTIVE
-            FROM PT_USER" + ListWhere + @"
-            ORDER BY USERNAME
+            SELECT u.ID, u.USERNAME, u.FULL_NAME, u.EMAIL, u.IS_ACTIVE
+            FROM PT_USER u" + ListWhere + @"
+            ORDER BY u.USERNAME
             OFFSET :off ROWS FETCH NEXT :lim ROWS ONLY";
 
         var filter = NullIfBlank(q);
         var inc = includeInactive ? "Y" : "N";
+
+        // "Chua gan don vi" va "loc theo 1 don vi" loai tru nhau: chon cai truoc thi bo cai sau,
+        // khong thi ra tap rong ma nguoi dung khong hieu tai sao.
+        var org = unassignedOnly ? null : NullIfBlank(bukrs);
+        var noorg = unassignedOnly ? "Y" : "N";
+
+        void Bind(OracleCommand cmd)
+        {
+            cmd.Parameters.Add("q", (object?)filter ?? DBNull.Value);
+            cmd.Parameters.Add("inc", inc);
+            cmd.Parameters.Add("bukrs", (object?)org ?? DBNull.Value);
+            cmd.Parameters.Add("noorg", noorg);
+        }
 
         await using var conn = await OpenAsync(ct);
 
         int total;
         await using (var cmd = new OracleCommand(countSql, conn) { BindByName = true })
         {
-            cmd.Parameters.Add("q", (object?)filter ?? DBNull.Value);
-            cmd.Parameters.Add("inc", inc);
+            Bind(cmd);
             total = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
         }
 
@@ -86,8 +117,7 @@ public sealed class UserAdminService : IUserAdminService
 
         await using (var cmd = new OracleCommand(pageSql, conn) { BindByName = true })
         {
-            cmd.Parameters.Add("q", (object?)filter ?? DBNull.Value);
-            cmd.Parameters.Add("inc", inc);
+            Bind(cmd);
             cmd.Parameters.Add("off", offset);
             cmd.Parameters.Add("lim", effSize);
 
