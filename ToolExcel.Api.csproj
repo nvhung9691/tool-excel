@@ -15,6 +15,16 @@
     <None Remove="ToolExcel.Tests\**" />
   </ItemGroup>
 
+  <!--
+    Ma nguon frontend (React/Vite) khong thuoc project .NET. Phai loai tru, khong thi
+    node_modules bi keo vao Content/None -> build cham va publish phinh to.
+    Ket qua build cua Vite di ra wwwroot\ va duoc Web SDK phuc vu binh thuong.
+  -->
+  <ItemGroup>
+    <Content Remove="frontend\**" />
+    <None Remove="frontend\**" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- Oracle ADO.NET provider: goi PKG_DYNAMIC_EXPORT (ref cursor), ghi H_DATA/T_DATA -->
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.5.1" />

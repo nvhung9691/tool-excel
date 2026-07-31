@@ -50,6 +50,8 @@ builder.Services.AddScoped<IBieuMauConfigService, BieuMauConfigService>();
 builder.Services.AddScoped<IExcelExportService, ExcelExportService>();
 builder.Services.AddScoped<IExcelImportService, ExcelImportService>();
 builder.Services.AddScoped<IUserAuthService, UserAuthService>();
+builder.Services.AddScoped<IUserAdminService, UserAdminService>();
+builder.Services.AddScoped<IUserScopeService, UserScopeService>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 
 // ---- Xac thuc JWT Bearer ----
@@ -103,6 +105,12 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+// Frontend React da build (npm run build -> wwwroot). Static file la middleware chay truoc
+// routing nen KHONG bi FallbackPolicy doi token — dung vay, vi man dang nhap phai tai duoc
+// khi chua co token. Du lieu van an toan: moi endpoint /api/* deu can Bearer.
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -110,5 +118,26 @@ app.MapControllers();
 
 // Health check: theo yeu cau bao ve toan bo -> cung can token.
 app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcNow }));
+
+// wwwroot la OUTPUT BUILD cua frontend (.gitignore) nen ban clone moi se khong co.
+// Bao ro thay vi tra 404 trang tron — nguoi deploy hay quen buoc npm run build.
+var indexPath = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
+if (File.Exists(indexPath))
+{
+    // SPA: duong dan la (vd /users khi F5) tra ve index.html cho React tu dinh tuyen.
+    // AllowAnonymous vi day la endpoint (khac static file o tren) nen se bi FallbackPolicy chan.
+    app.MapFallbackToFile("index.html").AllowAnonymous();
+}
+else
+{
+    app.MapFallback(() => Results.Text(
+        "Chua build frontend. Chay: cd frontend && npm ci && npm run build\n" +
+        "API van dung binh thuong: /swagger (Development) va /api/*.\n",
+        "text/plain; charset=utf-8")).AllowAnonymous();
+
+    app.Logger.LogWarning(
+        "Khong thay {Path} — frontend chua build. Chay 'cd frontend && npm ci && npm run build'.",
+        indexPath);
+}
 
 app.Run();
