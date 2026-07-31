@@ -12,11 +12,26 @@ API C# (ASP.NET Core .NET 8) tải template Excel động và upload Excel ghi v
 | Đọc/ghi Excel | `ClosedXML` (MIT) | Miễn phí, hỗ trợ conditional formatting cho cột `AAA` |
 | API docs | `Swashbuckle.AspNetCore` | Swagger UI |
 | Xác thực | `Microsoft.AspNetCore.Authentication.JwtBearer` + `BCrypt.Net-Next` | JWT HS256, hash `{bcrypt}` tương thích Spring Security |
-| Frontend | React 18 + Vite (**không** Ant Design) | ~50 kB gzip, build ra `wwwroot/` |
+| Frontend | React 18 + Vite (**không** Ant Design) | ~50 kB gzip, build ra `backend/wwwroot/` |
+
+## Cấu trúc thư mục
+
+```
+backend/          Toàn bộ phần .NET (API + test + cấu hình)
+  Controllers/ Data/ Models/ Services/ Program.cs
+  ToolExcel.Api.csproj
+  appsettings.json  appsettings.Development.json
+  appsettings.Local.json      <- mật khẩu thật + Jwt:Key, KHÔNG commit
+  ToolExcel.Tests/            Unit test (xunit)
+  wwwroot/                    Output build của frontend, KHÔNG commit
+frontend/         React + Vite (source giao diện quản trị)
+ToolExcel.sln     Gộp 2 project .NET -> chạy dotnet build/test từ thư mục gốc
+*.ps1 push.bat    Script auto-push / CI trên máy Windows
+```
 
 ## Cấu hình
 
-Sửa `appsettings.json` → section `Oracle`. Mỗi `connId` là một chuỗi kết nối (mô phỏng `PT_CONNECTION`). Nên đăng nhập bằng chính schema chứa `H_DATA/T_DATA` vì đọc cột qua `USER_TAB_COLUMNS`.
+Sửa `backend/appsettings.json` → section `Oracle`. Mỗi `connId` là một chuỗi kết nối (mô phỏng `PT_CONNECTION`). Nên đăng nhập bằng chính schema chứa `H_DATA/T_DATA` vì đọc cột qua `USER_TAB_COLUMNS`.
 
 ```json
 "Oracle": {
@@ -27,11 +42,25 @@ Sửa `appsettings.json` → section `Oracle`. Mỗi `connId` là một chuỗi 
 }
 ```
 
-Ngoài ra cần `Auth:UserConnId` (connId trỏ tới schema `PT_APP` chứa `PT_USER`/`PT_T001`) và `Jwt:Key` (**≥ 32 byte**, app không khởi động nếu ngắn hơn). Mật khẩu thật + khoá JWT để trong `appsettings.Local.json` (đã `.gitignore`), không commit.
+Ngoài ra cần `Auth:UserConnId` (connId trỏ tới schema `PT_APP` chứa `PT_USER`/`PT_T001`) và `Jwt:Key` (**≥ 32 byte** cho HS256). Mật khẩu thật + khoá JWT để trong `backend/appsettings.Local.json` (đã `.gitignore`), không commit:
+
+```json
+{
+  "Oracle": {
+    "Connections": {
+      "PB9":   { "ConnectionString": "User Id=APEX;Password=...;Data Source=192.168.67.177:1521/ORCLPDB1;" },
+      "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=...;Data Source=192.168.67.177:1521/ORCLPDB1;" }
+    }
+  },
+  "Jwt": { "Key": "chuoi_ngau_nhien_it_nhat_32_byte_o_day" }
+}
+```
+
+Thiếu `Jwt:Key` thì app **dừng ngay lúc khởi động** kèm thông báo rõ, không phải chạy lên rồi mỗi request mới lỗi.
 
 ## Chạy
 
-Frontend build ra `wwwroot/` nên deploy chỉ **một tiến trình duy nhất**, server **không cần Node**:
+Frontend build ra `backend/wwwroot/` nên deploy chỉ **một tiến trình duy nhất**, server **không cần Node**:
 
 ```bash
 # 1. Build frontend (chỉ cần khi giao diện thay đổi; cần Node 20+)
@@ -39,19 +68,19 @@ cd frontend && npm ci && npm run build && cd ..
 
 # 2. Chạy API + giao diện
 dotnet restore
-dotnet run
+dotnet run --project backend/ToolExcel.Api.csproj
 ```
 
 - Giao diện quản trị: `https://localhost:5001/`
 - Swagger: `https://localhost:5001/swagger`
 
-`wwwroot/` là **output build**, đã `.gitignore`. Nếu quên bước 1 thì API vẫn chạy bình thường, chỉ trang chủ trả về dòng nhắc chạy `npm run build` (chứ không phải 404 trắng).
+`backend/wwwroot/` là **output build**, đã `.gitignore`. Nếu quên bước 1 thì API vẫn chạy bình thường, chỉ trang chủ trả về dòng nhắc chạy `npm run build` (chứ không phải 404 trắng).
 
 Sửa giao diện thì tiện nhất là chạy 2 tiến trình — Vite dev server tự proxy `/api` sang API:
 
 ```bash
-dotnet run --urls http://localhost:5199   # cửa sổ 1
-cd frontend && npm run dev                # cửa sổ 2 -> http://localhost:5173
+dotnet run --project backend/ToolExcel.Api.csproj --urls http://localhost:5199   # cửa sổ 1
+cd frontend && npm run dev                                                      # cửa sổ 2 -> http://localhost:5173
 ```
 
 ## Xác thực & phân quyền
@@ -153,35 +182,35 @@ Ghi trong 1 transaction. `T_DATA.ID` là IDENTITY (không truyền); `CREATED_BY
 ## Cấu trúc mã nguồn
 
 ```
-Controllers/AuthController.cs         login / token / me / logout
-Controllers/AdminUsersController.cs   Quản trị PT_USER + gán BUKRS (chỉ ADMIN/SUPER)
-Controllers/BieuMauController.cs      2 endpoint export/import + chặn theo BUKRS
-Data/OracleConnectionFactory.cs       Factory kết nối đa nguồn theo connId
-Models/AuthModels.cs                  DTO: login, user info, token
-Models/AdminModels.cs                 DTO: danh sách user, đơn vị, request tạo/sửa
-Models/BieuMauModels.cs               DTO: config, header params, kết quả
-Services/BieuMauConfigService.cs      Đọc DM_BIEU_MAU + DM_BIEU_MAU_CONFIG
-Services/ExcelExportService.cs        Gọi PKG_DYNAMIC_EXPORT → dựng Excel
-Services/ExcelImportService.cs        Đọc Excel → ghi H_DATA/T_DATA
-Services/UserAuthService.cs           Đọc PT_USER/PT_ROLE để xác thực
-Services/UserAdminService.cs          CRUD PT_USER + PT_USER_ORG, đọc cây PT_T001
-Services/UserScopeService.cs          Phạm vi BUKRS (CONNECT BY) + BukrsScope.Decide()
-Services/PasswordVerifier.cs          Verify {bcrypt}/{noop} (định dạng Spring)
-Services/PasswordHasher.cs            Sinh {bcrypt}$2a$10$... khi tạo/đổi mật khẩu
-Services/JwtTokenService.cs           Phát JWT HS256, sub=username, claim roles
+backend/Controllers/AuthController.cs         login / token / me / logout
+backend/Controllers/AdminUsersController.cs   Quản trị PT_USER + gán BUKRS (chỉ ADMIN/SUPER)
+backend/Controllers/BieuMauController.cs      2 endpoint export/import + chặn theo BUKRS
+backend/Data/OracleConnectionFactory.cs       Factory kết nối đa nguồn theo connId
+backend/Models/AuthModels.cs                  DTO: login, user info, token
+backend/Models/AdminModels.cs                 DTO: danh sách user, đơn vị, request tạo/sửa
+backend/Models/BieuMauModels.cs               DTO: config, header params, kết quả
+backend/Services/BieuMauConfigService.cs      Đọc DM_BIEU_MAU + DM_BIEU_MAU_CONFIG
+backend/Services/ExcelExportService.cs        Gọi PKG_DYNAMIC_EXPORT → dựng Excel
+backend/Services/ExcelImportService.cs        Đọc Excel → ghi H_DATA/T_DATA
+backend/Services/UserAuthService.cs           Đọc PT_USER/PT_ROLE để xác thực
+backend/Services/UserAdminService.cs          CRUD PT_USER + PT_USER_ORG, đọc cây PT_T001
+backend/Services/UserScopeService.cs          Phạm vi BUKRS (CONNECT BY) + BukrsScope.Decide()
+backend/Services/PasswordVerifier.cs          Verify {bcrypt}/{noop} (định dạng Spring)
+backend/Services/PasswordHasher.cs            Sinh {bcrypt}$2a$10$... khi tạo/đổi mật khẩu
+backend/Services/JwtTokenService.cs           Phát JWT HS256, sub=username, claim roles
 
-frontend/                             React + Vite (build → wwwroot/)
-  src/App.tsx                         Vỏ + kiểm vai trò ADMIN/SUPER
-  src/Login.tsx                       Màn đăng nhập
-  src/UserAdmin.tsx                   Bảng người dùng + 4 dialog
-  src/BukrsPicker.tsx                 Chọn nhiều BUKRS + đánh dấu đơn vị chính
-  src/api.ts                          Client fetch, gắn Bearer, 401 → xoá token
+frontend/                                     React + Vite (build → backend/wwwroot/)
+  src/App.tsx                                 Vỏ + kiểm vai trò ADMIN/SUPER
+  src/Login.tsx                               Màn đăng nhập
+  src/UserAdmin.tsx                           Bảng người dùng + 4 dialog
+  src/BukrsPicker.tsx                         Chọn nhiều BUKRS + đánh dấu đơn vị chính
+  src/api.ts                                  Client fetch, gắn Bearer, 401 → xoá token
 ```
 
 ## Test
 
 ```bash
-dotnet test ToolExcel.Tests/ToolExcel.Tests.csproj    # 45 test
+dotnet test          # từ thư mục gốc, qua ToolExcel.sln — 45 test
 ```
 
 Phủ các chỗ dễ sai nhất, đều là hàm thuần không cần DB:

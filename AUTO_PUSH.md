@@ -53,6 +53,6 @@ powershell -ExecutionPolicy Bypass -File uninstall_autopush.ps1
 - Nếu `auto_push.log` báo **Push LOI** kèm "chua luu credential": push tay 1 lần theo
   `GIT_SETUP.md` (để Windows lưu token), rồi watcher sẽ tự chạy lại được.
 - Watcher tự bỏ qua `.git`, `bin/`, `obj/`, `auto_push.log` và mọi file trong `.gitignore` —
-  nên mật khẩu DB thật ở `appsettings.Local.json` **không** bị đẩy.
+  nên mật khẩu DB thật ở `backend/appsettings.Local.json` **không** bị đẩy.
 - Mỗi lần đẩy tạo 1 commit `auto: <thời gian>`. Muốn gộp lại gọn thì thỉnh thoảng
   `git rebase -i` hoặc squash khi merge — tuỳ anh.

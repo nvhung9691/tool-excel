@@ -10,8 +10,8 @@ obj/
 
 ## Frontend
 frontend/node_modules/
-# wwwroot là output build của Vite (frontend/) — sinh lại bằng `npm run build`, không commit
-wwwroot/
+# backend/wwwroot là output build của Vite (frontend/) — sinh lại bằng `npm run build`, không commit
+backend/wwwroot/
 
 ## Secrets — mật khẩu DB thật để ở đây, KHÔNG commit
 appsettings.Local.json

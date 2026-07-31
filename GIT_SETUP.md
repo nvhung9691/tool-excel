@@ -65,8 +65,8 @@ Nó tự chạy `git add -A` + `git commit` + `git push`. Không ghi message th�
 
 ## Ghi chú bảo mật
 
-- `appsettings.json` đang để mật khẩu DB là `CHANGE_ME` (placeholder) — an toàn để commit.
-- **Mật khẩu DB thật** hãy để ở file `appsettings.Local.json` (đã được `.gitignore` bỏ qua,
+- `backend/appsettings.json` đang để mật khẩu DB là `CHANGE_ME` (placeholder) — an toàn để commit.
+- **Mật khẩu DB thật** hãy để ở file `backend/appsettings.Local.json` (đã được `.gitignore` bỏ qua,
   không bao giờ lên GitHub). ASP.NET Core tự nạp file này nếu có.
 - Nếu lỡ commit mật khẩu thật rồi mới phát hiện: đổi mật khẩu đó trên Oracle ngay, vì nó đã
   nằm trong lịch sử git.

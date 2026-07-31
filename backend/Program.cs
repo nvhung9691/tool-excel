@@ -56,6 +56,17 @@ builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
 
 // ---- Xac thuc JWT Bearer ----
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>() ?? new JwtOptions();
+
+// Kiem ngay luc khoi dong. Neu de den luc tao SymmetricSecurityKey duoi day thi loi chi no
+// o REQUEST DAU TIEN, dang 'IDX10703: key length is zero' — rat kho doan ra la thieu cau hinh.
+if (Encoding.UTF8.GetByteCount(jwt.Key) < 32)
+{
+    throw new InvalidOperationException(
+        "Thieu hoac qua ngan 'Jwt:Key' (can >= 32 byte cho HS256). " +
+        "Khai trong appsettings.Local.json canh appsettings.json, vd: " +
+        "{ \"Jwt\": { \"Key\": \"<chuoi ngau nhien >= 32 ky tu>\" } }");
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
     {
