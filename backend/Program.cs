@@ -158,6 +158,8 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcN
 var indexPath = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
 if (File.Exists(indexPath))
 {
+    WarnIfFrontendStale(app, indexPath);
+
     // SPA: duong dan la (vd /users khi F5) tra ve index.html cho React tu dinh tuyen.
     // AllowAnonymous vi day la endpoint (khac static file o tren) nen se bi FallbackPolicy chan.
     app.MapFallbackToFile("index.html").AllowAnonymous();
@@ -175,3 +177,42 @@ else
 }
 
 app.Run();
+
+/// <summary>
+/// Canh bao khi ban build trong wwwroot CU HON ma nguon frontend — tuc la vua git pull ma quen
+/// chay npm run build. Truong hop nay giao dien cu goi API moi va vo bang loi kho hieu kieu
+/// "e.map is not a function"; da gap that. Chi chay khi con thay ..\frontend (may dev/build);
+/// tren may chay that chi co wwwroot nen ham nay im lang.
+/// </summary>
+static void WarnIfFrontendStale(WebApplication app, string indexPath)
+{
+    try
+    {
+        var src = Path.Combine(app.Environment.ContentRootPath, "..", "frontend");
+        if (!Directory.Exists(Path.Combine(src, "src")))
+            return;
+
+        // Chi quet frontend/src + vai file goc — KHONG quet node_modules.
+        var files = Directory.EnumerateFiles(Path.Combine(src, "src"), "*", SearchOption.AllDirectories)
+            .Concat(new[] { "index.html", "package.json", "vite.config.ts" }
+                        .Select(f => Path.Combine(src, f))
+                        .Where(File.Exists));
+
+        var newestSource = files.Select(f => File.GetLastWriteTimeUtc(f)).DefaultIfEmpty().Max();
+        var built = File.GetLastWriteTimeUtc(indexPath);
+
+        if (newestSource > built)
+        {
+            app.Logger.LogWarning(
+                "Giao dien trong wwwroot CU HON ma nguon frontend ({Built:u} < {Source:u}). " +
+                "Chay 'cd frontend && npm run build' roi Ctrl+Shift+R, khong thi giao dien cu " +
+                "goi API moi va bao loi kho hieu.",
+                built, newestSource);
+        }
+    }
+    catch (Exception ex)
+    {
+        // Kiem tra tien nghi thoi — khong duoc lam app khong khoi dong duoc.
+        app.Logger.LogDebug(ex, "Khong kiem duoc do moi cua ban build frontend");
+    }
+}

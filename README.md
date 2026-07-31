@@ -90,6 +90,16 @@ dotnet run --project backend/ToolExcel.Api.csproj
 
 `backend/wwwroot/` là **output build**, đã `.gitignore`. Nếu quên bước 1 thì API vẫn chạy bình thường, chỉ trang chủ trả về dòng nhắc chạy `npm run build` (chứ không phải 404 trắng).
 
+> ### ⚠️ `git pull` xong thì phải `npm run build` lại
+>
+> `wwwroot/` không nằm trong git, nên `git pull` **không** cập nhật giao diện. Bỏ qua bước build thì giao diện cũ sẽ gọi API mới và vỡ — ví dụ thật đã gặp: sau khi thêm phân trang, API đổi từ trả mảng sang trả `{ items, page, total }`, giao diện cũ vẫn `.map()` như mảng nên báo `TypeError: e.map is not a function`.
+>
+> Hai lớp phòng đã có sẵn:
+> - Backend **cảnh báo lúc khởi động** nếu bản build trong `wwwroot` cũ hơn mã nguồn trong `frontend/src` — nhìn log là biết.
+> - Frontend bắt được dạng dữ liệu lạ và hiện thông báo *"chạy npm run build rồi Ctrl+Shift+R"* thay vì vỡ trắng trang.
+>
+> Nhớ **Ctrl+Shift+R** (không phải F5) — F5 có thể vẫn dùng `index.html` trong cache, trỏ tới bundle cũ.
+
 Sửa giao diện thì tiện nhất là chạy 2 tiến trình — Vite dev server tự proxy `/api` sang API:
 
 ```bash

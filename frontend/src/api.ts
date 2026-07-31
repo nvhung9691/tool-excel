@@ -50,6 +50,22 @@ async function readError(res: Response): Promise<string> {
   }
 }
 
+/**
+ * Kiem hinh dang tra ve co dung la mot trang khong.
+ *
+ * Ly do co ham nay: neu ban build giao dien cu hon API (git pull ma quen npm run build),
+ * API tra { items, page, total } con code cu doi mot mang -> vo bang "e.map is not a function",
+ * khong noi len duoc nguyen nhan. Da gap that. Bay o day de bao dung viec can lam.
+ */
+function expectPage<T>(res: PagedResult<T>): PagedResult<T> {
+  if (!res || !Array.isArray(res.items)) {
+    throw new ApiError(500,
+      'API trả về dạng dữ liệu không mong đợi. Thường là giao diện cũ hơn API: ' +
+      'chạy "cd frontend && npm run build" rồi tải lại trang bằng Ctrl+Shift+R.')
+  }
+  return res
+}
+
 export const api = {
   login: (username: string, password: string) =>
     request<LoginResponse>('/api/auth/login', {
@@ -71,7 +87,7 @@ export const api = {
     // Hai lua chon nay loai tru nhau — cung o mot dropdown ben UI.
     if (f.unassignedOnly) p.set('unassignedOnly', 'true')
     else if (f.bukrs) p.set('bukrs', f.bukrs)
-    return request<PagedResult<UserListItem>>(`/api/admin/users?${p}`)
+    return request<PagedResult<UserListItem>>(`/api/admin/users?${p}`).then(expectPage)
   },
 
   createUser: (req: CreateUserRequest) =>
