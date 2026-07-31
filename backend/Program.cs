@@ -63,6 +63,7 @@ builder.Services.AddSwaggerGen(c =>
 // Cau hinh ket noi Oracle (nhieu nguon theo connId) + auth + jwt
 builder.Services.Configure<OracleConnectionOptions>(builder.Configuration.GetSection("Oracle"));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
+builder.Services.Configure<OrgCatalogOptions>(builder.Configuration.GetSection("Org"));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 
 builder.Services.AddSingleton<IOracleConnectionFactory, OracleConnectionFactory>();
@@ -70,6 +71,7 @@ builder.Services.AddScoped<IBieuMauConfigService, BieuMauConfigService>();
 builder.Services.AddScoped<IExcelExportService, ExcelExportService>();
 builder.Services.AddScoped<IExcelImportService, ExcelImportService>();
 builder.Services.AddScoped<IUserAuthService, UserAuthService>();
+builder.Services.AddScoped<IOrgCatalogService, OrgCatalogService>();
 builder.Services.AddScoped<IUserAdminService, UserAdminService>();
 builder.Services.AddScoped<IUserScopeService, UserScopeService>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();

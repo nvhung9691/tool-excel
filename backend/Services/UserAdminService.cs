@@ -23,7 +23,7 @@ public interface IUserAdminService
     Task ChangePasswordAsync(long id, string newPassword, string actor, CancellationToken ct);
     Task AssignBukrsAsync(long id, AssignBukrsRequest req, string actor, CancellationToken ct);
 
-    /// <summary>Danh muc don vi PT_T001 (chi doc) — dung cho dropdown gan BUKRS.</summary>
+    /// <summary>Danh muc don vi chuan (mac dinh T001 cua APEX) — dung cho dropdown gan BUKRS.</summary>
     Task<List<OrgItem>> ListOrgsAsync(CancellationToken ct);
 }
 
@@ -36,13 +36,16 @@ public sealed class UserAdminService : IUserAdminService
 {
     private readonly IOracleConnectionFactory _factory;
     private readonly IBieuMauConfigService _schema;
+    private readonly IOrgCatalogService _catalog;
     private readonly AuthOptions _auth;
 
     public UserAdminService(
-        IOracleConnectionFactory factory, IBieuMauConfigService schema, IOptions<AuthOptions> auth)
+        IOracleConnectionFactory factory, IBieuMauConfigService schema,
+        IOrgCatalogService catalog, IOptions<AuthOptions> auth)
     {
         _factory = factory;
         _schema = schema;
+        _catalog = catalog;
         _auth = auth.Value;
     }
 
@@ -64,10 +67,10 @@ public sealed class UserAdminService : IUserAdminService
               AND (:inc = 'Y' OR u.IS_ACTIVE = 'Y')
               AND (:bukrs IS NULL OR EXISTS (
                        SELECT 1 FROM PT_USER_ORG uo
-                       JOIN PT_T001 t ON t.ID = uo.ORG_ID
-                       WHERE uo.USER_ID = u.ID AND UPPER(t.BUKRS) = UPPER(:bukrs)))
+                       WHERE uo.USER_ID = u.ID AND UPPER(uo.BUKRS) = UPPER(:bukrs)))
               AND (:noorg = 'N' OR NOT EXISTS (
-                       SELECT 1 FROM PT_USER_ORG uo WHERE uo.USER_ID = u.ID))";
+                       SELECT 1 FROM PT_USER_ORG uo
+                       WHERE uo.USER_ID = u.ID AND uo.BUKRS IS NOT NULL))";
 
     public async Task<PagedResult<UserListItem>> ListAsync(
         string? q, bool includeInactive, string? bukrs, bool unassignedOnly,
@@ -156,35 +159,15 @@ public sealed class UserAdminService : IUserAdminService
         return user;
     }
 
-    public async Task<List<OrgItem>> ListOrgsAsync(CancellationToken ct)
-    {
-        // Doc phang roi dung cay o C#: neu don vi cha bi IS_ACTIVE='N' hoac PARENT_ID tro
-        // vao ban ghi khong con, CONNECT BY se lam mat ca nhanh con -> dropdown thieu don vi.
-        const string sql = @"
-            SELECT ID, BUKRS, BUTXT, ORG_TYPE, PARENT_ID
-            FROM PT_T001
-            WHERE IS_ACTIVE = 'Y'
-            ORDER BY NVL(SORT_ORDER, 0), BUKRS";
-
-        await using var conn = await OpenAsync(ct);
-        await using var cmd = new OracleCommand(sql, conn) { BindByName = true };
-
-        var flat = new List<OrgItem>();
-        await using var rd = await cmd.ExecuteReaderAsync(ct);
-        while (await rd.ReadAsync(ct))
-        {
-            flat.Add(new OrgItem
-            {
-                Id       = Convert.ToInt64(rd.GetValue(0)),
-                Bukrs    = rd.GetString(1),
-                Butxt    = rd.IsDBNull(2) ? string.Empty : rd.GetString(2),
-                OrgType  = rd.IsDBNull(3) ? null : rd.GetString(3),
-                ParentId = rd.IsDBNull(4) ? null : Convert.ToInt64(rd.GetValue(4))
-            });
-        }
-
-        return OrderAsTree(flat);
-    }
+    /// <summary>
+    /// Danh muc don vi lay tu NGUON CHUAN (<see cref="IOrgCatalogService"/> — mac dinh T001 cua
+    /// APEX), khong con doc PT_T001. Nho vay ma don vi o day luon trung voi ma ma APEX ghi vao
+    /// <c>H_DATA.BUKRS</c>, khong the lech.
+    /// <para>T001 khong co cot cha-con nen danh muc PHANG. <see cref="OrderAsTree"/> giu lai de
+    /// dung neu sau nay chuyen sang nguon co phan cap.</para>
+    /// </summary>
+    public Task<List<OrgItem>> ListOrgsAsync(CancellationToken ct)
+        => _catalog.ListAsync(ct);
 
     /// <summary>
     /// Sap xep cha truoc con va tinh <see cref="OrgItem.Level"/> de frontend thut le.
@@ -373,7 +356,11 @@ public sealed class UserAdminService : IUserAdminService
 
     /// <summary>
     /// Thay TOAN BO danh sach don vi cua user: xoa het roi ghi lai theo <paramref name="bukrsList"/>.
-    /// BUKRS khong co trong PT_T001 -> nem loi, khong bo qua im lang.
+    /// <para>Ma don vi duoc validate voi DANH MUC CHUAN (<see cref="IOrgCatalogService"/> — mac dinh
+    /// la T001 cua APEX), khong phai voi PT_T001. Ma la -> nem loi, khong bo qua im lang.</para>
+    /// <para>Ghi vao cot <c>PT_USER_ORG.BUKRS</c>. Van ghi kem <c>ORG_ID</c> khi ma do tinh co co
+    /// trong PT_T001, de backend Java (doc ORG_ID trong ScopeService) tiep tuc chay dung voi cac ma
+    /// no biet — xem db/01_pt_user_org_bukrs.sql.</para>
     /// </summary>
     private async Task ReplaceBukrsAsync(
         OracleConnection conn, OracleTransaction tx, long userId,
@@ -404,22 +391,41 @@ public sealed class UserAdminService : IUserAdminService
         if (wanted.Count == 0)
             return;
 
-        const string insSql = @"
-            INSERT INTO PT_USER_ORG (USER_ID, ORG_ID, IS_PRIMARY)
-            SELECT :uid, t.ID, :pri FROM PT_T001 t WHERE UPPER(t.BUKRS) = UPPER(:bukrs)";
+        // Validate voi danh muc chuan TRUOC khi ghi, de bao dung ma nao sai.
+        var valid = await _catalog.ListCodesAsync(ct);
+        var unknown = wanted.Where(b => !valid.Contains(b)).ToList();
+        if (unknown.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Ma don vi khong co trong danh muc chuan: {string.Join(", ", unknown)}.");
+        }
+
+        var orgCols = await _schema.GetTableColumnsAsync(conn, "PT_USER_ORG", ct);
+        if (!orgCols.Contains("BUKRS"))
+        {
+            throw new InvalidOperationException(
+                "Bang PT_USER_ORG chua co cot BUKRS. Chay db/01_pt_user_org_bukrs.sql truoc.");
+        }
+
+        // ORG_ID chi ghi khi con cot do VA tra duoc ID trong PT_T001; khong tra duoc thi de NULL.
+        var withOrgId = orgCols.Contains("ORG_ID");
+        var insSql = withOrgId
+            ? @"INSERT INTO PT_USER_ORG (USER_ID, BUKRS, IS_PRIMARY, ORG_ID)
+                VALUES (:uid, :bukrs, :pri,
+                        (SELECT MIN(t.ID) FROM PT_T001 t WHERE UPPER(t.BUKRS) = UPPER(:bukrs)))"
+            : @"INSERT INTO PT_USER_ORG (USER_ID, BUKRS, IS_PRIMARY)
+                VALUES (:uid, :bukrs, :pri)";
 
         foreach (var bukrs in wanted)
         {
             await using var ins = new OracleCommand(insSql, conn)
                 { Transaction = tx, BindByName = true };
             ins.Parameters.Add("uid", userId);
+            ins.Parameters.Add("bukrs", bukrs);
             ins.Parameters.Add("pri",
                 string.Equals(bukrs, primary, StringComparison.OrdinalIgnoreCase) ? "Y" : "N");
-            ins.Parameters.Add("bukrs", bukrs);
 
-            if (await ins.ExecuteNonQueryAsync(ct) == 0)
-                throw new InvalidOperationException(
-                    $"BUKRS '{bukrs}' khong co trong danh muc don vi PT_T001.");
+            await ins.ExecuteNonQueryAsync(ct);
         }
     }
 
@@ -450,11 +456,13 @@ public sealed class UserAdminService : IUserAdminService
 
         // {0} duoc thay bang danh sach bind :u0,:u1,... — chi sinh tu ID so nguyen doc tu DB,
         // khong nhan gi tu client, nen khong phai mat phoi injection.
+        // Doc BUKRS THANG tu PT_USER_ORG, khong join PT_T001 nua — danh muc chuan gio la
+        // T001 cua APEX, PT_T001 chi con la di san cho backend Java.
         const string bukrsSql = @"
-            SELECT uo.USER_ID, t.BUKRS
-            FROM PT_USER_ORG uo JOIN PT_T001 t ON t.ID = uo.ORG_ID
-            WHERE uo.USER_ID IN ({0})
-            ORDER BY uo.USER_ID, NVL(uo.IS_PRIMARY,'N') DESC, t.BUKRS";
+            SELECT uo.USER_ID, uo.BUKRS
+            FROM PT_USER_ORG uo
+            WHERE uo.USER_ID IN ({0}) AND uo.BUKRS IS NOT NULL
+            ORDER BY uo.USER_ID, NVL(uo.IS_PRIMARY,'N') DESC, uo.BUKRS";
 
         const string roleSql = @"
             SELECT ur.USER_ID, r.ROLE_CODE

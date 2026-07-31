@@ -358,6 +358,14 @@ textarea {
 
 .tag.pri { background: var(--accent); color: var(--accent-text); font-weight: 600; }
 
+/* Ma don vi da gan nhung KHONG con trong danh muc chuan -> tai khoan se bi 403 */
+.tag.stale {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger-line);
+  color: var(--danger-text);
+  font-weight: 600;
+}
+
 .badge {
   font-size: .8rem;
   padding: .1rem .45rem;

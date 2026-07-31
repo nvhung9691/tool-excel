@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { BukrsPicker } from './BukrsPicker'
 import type { OrgItem, PagedResult, UserListItem } from './types'
@@ -13,7 +13,7 @@ type Dialog =
 const PAGE_SIZES = [25, 50, 100, 200]
 
 /**
- * Hai gia tri dac biet cua dropdown don vi. Dat tien to '#' vi BUKRS trong PT_T001 la
+ * Hai gia tri dac biet cua dropdown don vi. Dat tien to '#' vi BUKRS la
  * VARCHAR2 ma nghiep vu — khong bao gio bat dau bang '#', nen khong the trung.
  */
 const ORG_ALL = '#all'
@@ -82,6 +82,11 @@ export function UserAdmin() {
     setPage(1)
   }
 
+  // Ma don vi co trong danh muc CHUAN. Ma da gan cho user ma khong nam trong day la di san
+  // (vd PT_T001 cu dung ma khac T001) — phai danh dau, vi tai khoan do se bi 403.
+  const knownCodes = useMemo(
+    () => new Set(orgs.map(o => o.bukrs.toUpperCase())), [orgs])
+
   // Moi thu hien tren UI deu doc tu `data` (trang DA tai), khong doc tu state dang cho.
   const users = data?.items ?? []
   const total = data?.total ?? 0
@@ -103,7 +108,7 @@ export function UserAdmin() {
             <option value={ORG_ALL}>Tất cả đơn vị</option>
             <option value={ORG_NONE}>— Chưa gán đơn vị —</option>
             {orgs.map(o => (
-              <option key={o.id} value={o.bukrs}>
+              <option key={o.bukrs} value={o.bukrs}>
                 {' '.repeat(o.level * 2)}{o.bukrs} — {o.butxt}
               </option>
             ))}
@@ -157,10 +162,18 @@ export function UserAdmin() {
                 <td>
                   {u.bukrs.length === 0
                     ? <span className="muted">chưa gán</span>
-                    : u.bukrs.map((b, i) => (
-                        <span key={b} className={'tag' + (i === 0 ? ' pri' : '')}
-                              title={i === 0 ? 'Đơn vị chính' : undefined}>{b}</span>
-                      ))}
+                    : u.bukrs.map((b, i) => {
+                        const known = knownCodes.has(b.toUpperCase())
+                        return (
+                          <span key={b}
+                                className={'tag' + (i === 0 ? ' pri' : '') + (known ? '' : ' stale')}
+                                title={!known
+                                  ? `Mã "${b}" không có trong danh mục đơn vị chuẩn — tài khoản sẽ bị 403 khi gọi biểu mẫu với mã này`
+                                  : i === 0 ? 'Đơn vị chính' : undefined}>
+                            {b}{!known && ' ⚠'}
+                          </span>
+                        )
+                      })}
                 </td>
                 <td>
                   {u.isActive
