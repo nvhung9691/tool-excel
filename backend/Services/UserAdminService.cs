@@ -7,7 +7,9 @@ namespace ToolExcel.Api.Services;
 
 public interface IUserAdminService
 {
-    Task<List<UserListItem>> ListAsync(string? q, bool includeInactive, CancellationToken ct);
+    /// <summary>Mot trang danh sach nguoi dung. <paramref name="q"/> loc theo username/ho ten.</summary>
+    Task<PagedResult<UserListItem>> ListAsync(
+        string? q, bool includeInactive, int page, int pageSize, CancellationToken ct);
     Task<UserListItem?> GetAsync(long id, CancellationToken ct);
     Task<long> CreateAsync(CreateUserRequest req, string actor, CancellationToken ct);
     Task UpdateAsync(long id, UpdateUserRequest req, string actor, CancellationToken ct);
@@ -42,35 +44,62 @@ public sealed class UserAdminService : IUserAdminService
 
     // ---------------------------------------------------------------- doc
 
-    public async Task<List<UserListItem>> ListAsync(string? q, bool includeInactive, CancellationToken ct)
-    {
-        const string sql = @"
-            SELECT ID, USERNAME, FULL_NAME, EMAIL, IS_ACTIVE
-            FROM PT_USER
+    /// <summary>Dieu kien loc dung chung cho ca dem tong va lay trang, de khong lech nhau.</summary>
+    private const string ListWhere = @"
             WHERE (:q IS NULL
-                   OR UPPER(USERNAME)          LIKE '%' || UPPER(:q) || '%'
+                   OR UPPER(USERNAME)           LIKE '%' || UPPER(:q) || '%'
                    OR UPPER(NVL(FULL_NAME,' ')) LIKE '%' || UPPER(:q) || '%')
-              AND (:inc = 'Y' OR IS_ACTIVE = 'Y')
-            ORDER BY USERNAME";
+              AND (:inc = 'Y' OR IS_ACTIVE = 'Y')";
+
+    public async Task<PagedResult<UserListItem>> ListAsync(
+        string? q, bool includeInactive, int page, int pageSize, CancellationToken ct)
+    {
+        const string countSql = "SELECT COUNT(*) FROM PT_USER" + ListWhere;
+
+        // ORDER BY USERNAME du de xac dinh thu tu vi USERNAME la UNIQUE — khong co nguy co
+        // mot ban ghi xuat hien o 2 trang hoac bi bo qua giua cac trang.
+        const string pageSql = @"
+            SELECT ID, USERNAME, FULL_NAME, EMAIL, IS_ACTIVE
+            FROM PT_USER" + ListWhere + @"
+            ORDER BY USERNAME
+            OFFSET :off ROWS FETCH NEXT :lim ROWS ONLY";
+
+        var filter = NullIfBlank(q);
+        var inc = includeInactive ? "Y" : "N";
 
         await using var conn = await OpenAsync(ct);
 
-        var users = new List<UserListItem>();
-        await using (var cmd = new OracleCommand(sql, conn) { BindByName = true })
+        int total;
+        await using (var cmd = new OracleCommand(countSql, conn) { BindByName = true })
         {
-            cmd.Parameters.Add("q", (object?)NullIfBlank(q) ?? DBNull.Value);
-            cmd.Parameters.Add("inc", includeInactive ? "Y" : "N");
+            cmd.Parameters.Add("q", (object?)filter ?? DBNull.Value);
+            cmd.Parameters.Add("inc", inc);
+            total = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+        }
+
+        // Dem tong TRUOC de keo duoc trang vuot qua cuoi ve trang cuoi.
+        var (effPage, effSize, offset) = Paging.Normalize(page, pageSize, total);
+
+        var result = new PagedResult<UserListItem> { Page = effPage, PageSize = effSize, Total = total };
+        if (total == 0)
+            return result;
+
+        await using (var cmd = new OracleCommand(pageSql, conn) { BindByName = true })
+        {
+            cmd.Parameters.Add("q", (object?)filter ?? DBNull.Value);
+            cmd.Parameters.Add("inc", inc);
+            cmd.Parameters.Add("off", offset);
+            cmd.Parameters.Add("lim", effSize);
 
             await using var rd = await cmd.ExecuteReaderAsync(ct);
             while (await rd.ReadAsync(ct))
-                users.Add(ReadUser(rd));
+                result.Items.Add(ReadUser(rd));
         }
 
-        if (users.Count == 0)
-            return users;
+        if (result.Items.Count > 0)
+            await FillBukrsAndRolesAsync(conn, result.Items, ct);
 
-        await FillBukrsAndRolesAsync(conn, users, ct);
-        return users;
+        return result;
     }
 
     public async Task<UserListItem?> GetAsync(long id, CancellationToken ct)

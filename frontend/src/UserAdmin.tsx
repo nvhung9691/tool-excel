@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { BukrsPicker } from './BukrsPicker'
-import type { OrgItem, UserListItem } from './types'
+import type { OrgItem, PagedResult, UserListItem } from './types'
 
 type Dialog =
   | { kind: 'create' }
@@ -10,26 +10,44 @@ type Dialog =
   | { kind: 'password'; user: UserListItem }
   | null
 
+const PAGE_SIZES = [25, 50, 100, 200]
+
 export function UserAdmin() {
-  const [users, setUsers] = useState<UserListItem[]>([])
+  // Giu CA TRANG trong 1 state thay vi tach items/page/total: neu tach, tom tat doc tu `page`
+  // (doi ngay khi bam) con bang doc tu items (den sau) -> trong luc tai, tom tat ghi
+  // "301-312" ma bang van hien 25 dong cua trang truoc. Da gap dung loi nay.
+  const [data, setData] = useState<PagedResult<UserListItem> | null>(null)
   const [orgs, setOrgs] = useState<OrgItem[]>([])
   const [q, setQ] = useState('')
   const [includeInactive, setIncludeInactive] = useState(true)
+  const [page, setPage] = useState(1)          // chi dung de GOI API
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [dialog, setDialog] = useState<Dialog>(null)
+
+  // Moi ky tu go vao o tim la 1 truy van DB -> cho go xong 300ms moi goi.
+  const [qDebounced, setQDebounced] = useState(q)
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(q), 300)
+    return () => clearTimeout(t)
+  }, [q])
 
   const reload = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      setUsers(await api.listUsers(q, includeInactive))
+      const res = await api.listUsers(qDebounced, includeInactive, page, pageSize)
+      setData(res)
+      // Backend keo trang vuot qua cuoi ve trang cuoi -> dong bo lai de nut Truoc/Sau dung.
+      if (res.page !== page) setPage(res.page)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setData(null)
     } finally {
       setLoading(false)
     }
-  }, [q, includeInactive])
+  }, [qDebounced, includeInactive, page, pageSize])
 
   useEffect(() => { void reload() }, [reload])
 
@@ -45,14 +63,28 @@ export function UserAdmin() {
     await reload()
   }
 
+  // Doi dieu kien loc thi phai ve trang 1, khong thi dang o trang 9 loc con 2 ket qua.
+  function changeFilter(apply: () => void) {
+    apply()
+    setPage(1)
+  }
+
+  // Moi thu hien tren UI deu doc tu `data` (trang DA tai), khong doc tu state dang cho.
+  const users = data?.items ?? []
+  const total = data?.total ?? 0
+  const totalPages = data?.totalPages ?? 1
+  const shownPage = data?.page ?? 1
+  const firstRow = total === 0 ? 0 : (shownPage - 1) * (data?.pageSize ?? pageSize) + 1
+  const lastRow = firstRow === 0 ? 0 : firstRow + users.length - 1
+
   return (
     <>
       <div className="toolbar">
         <input className="search" placeholder="Tìm theo tên đăng nhập / họ tên…"
-               value={q} onChange={e => setQ(e.target.value)} />
+               value={q} onChange={e => changeFilter(() => setQ(e.target.value))} />
         <label className="inline">
           <input type="checkbox" checked={includeInactive}
-                 onChange={e => setIncludeInactive(e.target.checked)} />
+                 onChange={e => changeFilter(() => setIncludeInactive(e.target.checked))} />
           Hiện cả tài khoản đã tắt
         </label>
         <span className="spacer" />
@@ -115,6 +147,36 @@ export function UserAdmin() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="pager">
+        <span className="muted">
+          {total === 0
+            ? 'Không có bản ghi'
+            : `Hiển thị ${firstRow}–${lastRow} / ${total} người dùng`}
+        </span>
+
+        <label className="inline">
+          Số dòng
+          <select value={pageSize}
+                  onChange={e => changeFilter(() => setPageSize(Number(e.target.value)))}>
+            {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+
+        <span className="spacer" />
+
+        <div className="pager-nav">
+          <button onClick={() => setPage(1)} disabled={loading || shownPage <= 1}
+                  title="Trang đầu">«</button>
+          <button onClick={() => setPage(shownPage - 1)}
+                  disabled={loading || shownPage <= 1}>Trước</button>
+          <span className="muted">Trang {shownPage} / {totalPages}</span>
+          <button onClick={() => setPage(shownPage + 1)}
+                  disabled={loading || shownPage >= totalPages}>Sau</button>
+          <button onClick={() => setPage(totalPages)} disabled={loading || shownPage >= totalPages}
+                  title="Trang cuối">»</button>
+        </div>
       </div>
 
       {dialog?.kind === 'create' &&

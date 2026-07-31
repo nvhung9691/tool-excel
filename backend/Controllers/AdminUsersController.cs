@@ -33,11 +33,20 @@ public sealed class AdminUsersController : ControllerBase
     public Task<IActionResult> ListOrgs(CancellationToken ct)
         => Run(async () => Ok(await _users.ListOrgsAsync(ct)));
 
-    /// <summary>Danh sach nguoi dung. <paramref name="q"/> loc theo username/ho ten.</summary>
+    /// <summary>
+    /// Mot trang danh sach nguoi dung. <paramref name="q"/> loc theo username/ho ten.
+    /// <para><paramref name="pageSize"/> bi chan tran o <see cref="Paging.MaxPageSize"/>;
+    /// <paramref name="page"/> vuot qua cuoi duoc keo ve trang cuoi. Ket qua tra ve luon kem
+    /// <c>page</c>/<c>pageSize</c> that su da dung, nen client cu theo do ma hien.</para>
+    /// </summary>
     [HttpGet("users")]
     public Task<IActionResult> List(
-        [FromQuery] string? q, [FromQuery] bool includeInactive = true, CancellationToken ct = default)
-        => Run(async () => Ok(await _users.ListAsync(q, includeInactive, ct)));
+        [FromQuery] string? q,
+        [FromQuery] bool includeInactive = true,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = Paging.DefaultPageSize,
+        CancellationToken ct = default)
+        => Run(async () => Ok(await _users.ListAsync(q, includeInactive, page, pageSize, ct)));
 
     [HttpGet("users/{id:long}")]
     public Task<IActionResult> Get(long id, CancellationToken ct)

@@ -147,8 +147,32 @@ Vào bằng tài khoản có vai trò `ADMIN` hoặc `SUPER`. Làm được:
 - **Sửa / tắt** — tắt là `IS_ACTIVE='N'` (xoá mềm), không xoá bản ghi.
 - **Đặt lại mật khẩu** — không cần mật khẩu cũ.
 - **Gán đơn vị (BUKRS)** — chọn nhiều đơn vị từ cây `PT_T001`, đánh dấu một đơn vị chính (`IS_PRIMARY='Y'`). Lưu là **thay toàn bộ** danh sách cũ.
+- **Tìm kiếm + phân trang** — xem mục dưới.
 
 Bảng DB tác động: `PT_USER` (ghi), `PT_USER_ORG` (ghi), `PT_T001` (chỉ đọc), `PT_USER_ROLE`/`PT_ROLE` (chỉ đọc để hiển thị).
+
+### Phân trang
+
+Phân trang **ở phía server** (`OFFSET … FETCH NEXT` — cần Oracle 12c trở lên), không tải cả bảng về rồi cắt ở browser.
+
+```
+GET /api/admin/users?q=&includeInactive=true&page=1&pageSize=25
+```
+
+```json
+{ "items": [...], "page": 1, "pageSize": 25, "total": 312, "totalPages": 13 }
+```
+
+| Quy ước | Hành vi |
+|---|---|
+| `pageSize` mặc định 25, chọn được 25/50/100/200 | Chặn trần ở `Paging.MaxPageSize` = 200 |
+| `page` vượt quá trang cuối | Kéo về **trang cuối**, không trả bảng trống |
+| `page` ≤ 0 hoặc `pageSize` ≤ 0 | Về trang 1 / kích thước mặc định |
+| Đổi ô tìm kiếm, `includeInactive`, hay `pageSize` | Tự về trang 1 |
+
+`page`/`pageSize` trong kết quả là giá trị **backend thực sự dùng** sau khi chuẩn hoá — frontend hiển thị theo đó, không theo tham số nó gửi đi.
+
+Ô tìm kiếm có **debounce 300ms**: gõ 6 ký tự chỉ sinh 1 lời gọi API thay vì 6. Số đếm `total` và danh sách dùng **chung một state đã tải xong**, nên trong lúc đang tải trang mới không xảy ra cảnh dòng tóm tắt ghi "301–312" mà bảng vẫn hiện dữ liệu trang cũ.
 
 ### Chưa làm trong màn này
 
@@ -224,7 +248,7 @@ frontend/                                     React + Vite (build → backend/ww
 ## Test
 
 ```bash
-dotnet test          # từ thư mục gốc, qua ToolExcel.sln — 45 test
+dotnet test          # từ thư mục gốc, qua ToolExcel.sln — 67 test
 ```
 
 Phủ các chỗ dễ sai nhất, đều là hàm thuần không cần DB:
@@ -235,14 +259,16 @@ Phủ các chỗ dễ sai nhất, đều là hàm thuần không cần DB:
 | `PasswordHasherTests.cs` | Hash ra đúng `{bcrypt}$2a$10$`, round-trip, mật khẩu có dấu tiếng Việt |
 | `BukrsScopeTests.cs` | Logic chặn BUKRS — gồm bẫy "tập rỗng ≠ không giới hạn" |
 | `OrgTreeTests.cs` | Cây `PT_T001`: đơn vị mồ côi / vòng lặp cha-con không được làm mất bản ghi |
+| `PagingTests.cs` | `OFFSET` và số trang — `page` âm/0/vượt cuối, `pageSize` khổng lồ, tổng chia hết |
 | `HelpersTests.cs` | Parse `EXCEL_COL`, `HeaderParams.FromQuery` |
 
 ## TODO
 
 - **Gán vai trò (`PT_USER_ROLE`) từ màn quản trị** — hiện phải `INSERT` tay, xem mục trên.
+- **Quyền theo từng biểu mẫu** — hiện tài khoản có `BUKRS` nào thì gọi được **mọi** biểu mẫu của đơn vị đó. Nếu cần giới hạn theo biểu thì phải thêm bảng map + màn cấu hình; nên quyết trước go-live.
 - Quản lý danh mục đơn vị `PT_T001` từ giao diện.
 - Lọc danh sách người dùng theo phạm vi đơn vị của admin (`ScopeService` như bản Java).
 - Xuất theo template gốc `PT_REPORT_TMPL` khi có (hiện luôn tự sinh từ config).
 - `get_data_dynamic_no_marc` / `get_data_kdt05` cho biểu đặc thù.
-- **Integration test với Oracle thật** — toàn bộ phần chạm DB (CRUD user, truy vấn phạm vi, 403 khi ngoài phạm vi) hiện chưa có test tự động nào phủ.
-- Khi Oracle không tới được, mỗi lời gọi treo **~60 giây** rồi mới trả 503 (`Connection Timeout` trong connection string không được ODP.NET tôn trọng). Cần đặt timeout riêng cho bước mở kết nối.
+- **Integration test với Oracle thật** — toàn bộ phần chạm DB (CRUD user, truy vấn phạm vi, 403 khi ngoài phạm vi, câu `OFFSET/FETCH`) hiện chưa có test tự động nào phủ.
+- Khi Oracle chết mà có ~60 lời gọi đồng thời, mỗi lời gọi mất 20–30 giây mới trả 503 (ODP.NET tuần tự hoá các lần mở kết nối trên pool đã chết). Muốn nhanh hơn cần circuit breaker.

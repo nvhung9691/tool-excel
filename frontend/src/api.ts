@@ -1,6 +1,6 @@
 import type {
-  AssignBukrsRequest, CreateUserRequest, LoginResponse,
-  OrgItem, UpdateUserRequest, UserInfo, UserListItem,
+  AssignBukrsRequest, CreateUserRequest, LoginResponse, OrgItem,
+  PagedResult, UpdateUserRequest, UserInfo, UserListItem,
 } from './types'
 
 const TOKEN_KEY = 'toolexcel.token'
@@ -61,10 +61,14 @@ export const api = {
 
   listOrgs: () => request<OrgItem[]>('/api/admin/orgs'),
 
-  listUsers: (q: string, includeInactive: boolean) => {
-    const p = new URLSearchParams({ includeInactive: String(includeInactive) })
+  listUsers: (q: string, includeInactive: boolean, page: number, pageSize: number) => {
+    const p = new URLSearchParams({
+      includeInactive: String(includeInactive),
+      page: String(page),
+      pageSize: String(pageSize),
+    })
     if (q.trim()) p.set('q', q.trim())
-    return request<UserListItem[]>(`/api/admin/users?${p}`)
+    return request<PagedResult<UserListItem>>(`/api/admin/users?${p}`)
   },
 
   createUser: (req: CreateUserRequest) =>

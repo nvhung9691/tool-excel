@@ -28,6 +28,16 @@ export interface UserListItem {
   roles: string[]
 }
 
+/** Mot trang ket qua. `page`/`pageSize` la gia tri backend THUC SU dung (da chuan hoa). */
+export interface PagedResult<T> {
+  items: T[]
+  page: number
+  pageSize: number
+  /** Tong so ban ghi khop dieu kien loc, khong phai so ban ghi trong trang. */
+  total: number
+  totalPages: number
+}
+
 export interface OrgItem {
   id: number
   bukrs: string

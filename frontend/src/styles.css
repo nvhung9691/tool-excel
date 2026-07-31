@@ -191,6 +191,32 @@ tbody tr.off { opacity: .55; }
 td.actions { white-space: nowrap; text-align: right; }
 td.actions button { margin-left: .35rem; }
 
+/* ---------- phan trang ---------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: .85rem;
+  font-size: .9rem;
+}
+
+.pager label.inline { margin: 0; gap: .4rem; }
+
+.pager select {
+  padding: .3rem .4rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+}
+
+.pager-nav { display: flex; align-items: center; gap: .4rem; }
+.pager-nav button { padding: .3rem .6rem; }
+.pager-nav .muted { padding: 0 .35rem; white-space: nowrap; }
+
 .tag {
   display: inline-block;
   background: var(--tag-bg);
