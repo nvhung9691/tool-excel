@@ -7,14 +7,23 @@ namespace ToolExcel.Api.Services;
 
 public interface IUserAdminService
 {
-    Task<List<UserListItem>> ListAsync(string? q, bool includeInactive, CancellationToken ct);
+    /// <summary>
+    /// Mot trang danh sach nguoi dung.
+    /// <para><paramref name="q"/> loc theo username/ho ten;
+    /// <paramref name="bukrs"/> loc theo don vi da gan truc tiep;
+    /// <paramref name="unassignedOnly"/> chi lay nguoi dung CHUA gan don vi nao (khi bat, no
+    /// thang the <paramref name="bukrs"/>).</para>
+    /// </summary>
+    Task<PagedResult<UserListItem>> ListAsync(
+        string? q, bool includeInactive, string? bukrs, bool unassignedOnly,
+        int page, int pageSize, CancellationToken ct);
     Task<UserListItem?> GetAsync(long id, CancellationToken ct);
     Task<long> CreateAsync(CreateUserRequest req, string actor, CancellationToken ct);
     Task UpdateAsync(long id, UpdateUserRequest req, string actor, CancellationToken ct);
     Task ChangePasswordAsync(long id, string newPassword, string actor, CancellationToken ct);
     Task AssignBukrsAsync(long id, AssignBukrsRequest req, string actor, CancellationToken ct);
 
-    /// <summary>Danh muc don vi PT_T001 (chi doc) — dung cho dropdown gan BUKRS.</summary>
+    /// <summary>Danh muc don vi chuan (mac dinh T001 cua APEX) — dung cho dropdown gan BUKRS.</summary>
     Task<List<OrgItem>> ListOrgsAsync(CancellationToken ct);
 }
 
@@ -27,54 +36,103 @@ public sealed class UserAdminService : IUserAdminService
 {
     private readonly IOracleConnectionFactory _factory;
     private readonly IBieuMauConfigService _schema;
+    private readonly IOrgCatalogService _catalog;
     private readonly AuthOptions _auth;
 
     public UserAdminService(
-        IOracleConnectionFactory factory, IBieuMauConfigService schema, IOptions<AuthOptions> auth)
+        IOracleConnectionFactory factory, IBieuMauConfigService schema,
+        IOrgCatalogService catalog, IOptions<AuthOptions> auth)
     {
         _factory = factory;
         _schema = schema;
+        _catalog = catalog;
         _auth = auth.Value;
     }
 
-    private async Task<OracleConnection> OpenAsync(CancellationToken ct)
-    {
-        var conn = _factory.Create(_auth.UserConnId);
-        await conn.OpenAsync(ct);
-        return conn;
-    }
+    private Task<OracleConnection> OpenAsync(CancellationToken ct)
+        => _factory.OpenAsync(_auth.UserConnId, ct);
 
     // ---------------------------------------------------------------- doc
 
-    public async Task<List<UserListItem>> ListAsync(string? q, bool includeInactive, CancellationToken ct)
-    {
-        const string sql = @"
-            SELECT ID, USERNAME, FULL_NAME, EMAIL, IS_ACTIVE
-            FROM PT_USER
+    /// <summary>
+    /// Dieu kien loc dung chung cho ca dem tong va lay trang, de hai cau khong lech nhau.
+    /// <para>Loc theo BUKRS la khop TRUC TIEP trong PT_USER_ORG — dung nhung gi cot
+    /// "DON VI (BUKRS)" tren bang dang hien, khong mo rong xuong cay con. Nho vay loc theo
+    /// cai gi thi thay dung cai do.</para>
+    /// </summary>
+    private const string ListWhere = @"
             WHERE (:q IS NULL
-                   OR UPPER(USERNAME)          LIKE '%' || UPPER(:q) || '%'
-                   OR UPPER(NVL(FULL_NAME,' ')) LIKE '%' || UPPER(:q) || '%')
-              AND (:inc = 'Y' OR IS_ACTIVE = 'Y')
-            ORDER BY USERNAME";
+                   OR UPPER(u.USERNAME)           LIKE '%' || UPPER(:q) || '%'
+                   OR UPPER(NVL(u.FULL_NAME,' ')) LIKE '%' || UPPER(:q) || '%')
+              AND (:inc = 'Y' OR u.IS_ACTIVE = 'Y')
+              AND (:bukrs IS NULL OR EXISTS (
+                       SELECT 1 FROM PT_USER_ORG uo
+                       WHERE uo.USER_ID = u.ID AND UPPER(uo.BUKRS) = UPPER(:bukrs)))
+              AND (:noorg = 'N' OR NOT EXISTS (
+                       SELECT 1 FROM PT_USER_ORG uo
+                       WHERE uo.USER_ID = u.ID AND uo.BUKRS IS NOT NULL))";
+
+    public async Task<PagedResult<UserListItem>> ListAsync(
+        string? q, bool includeInactive, string? bukrs, bool unassignedOnly,
+        int page, int pageSize, CancellationToken ct)
+    {
+        const string countSql = "SELECT COUNT(*) FROM PT_USER u" + ListWhere;
+
+        // ORDER BY USERNAME du de xac dinh thu tu vi USERNAME la UNIQUE — khong co nguy co
+        // mot ban ghi xuat hien o 2 trang hoac bi bo qua giua cac trang.
+        const string pageSql = @"
+            SELECT u.ID, u.USERNAME, u.FULL_NAME, u.EMAIL, u.IS_ACTIVE
+            FROM PT_USER u" + ListWhere + @"
+            ORDER BY u.USERNAME
+            OFFSET :off ROWS FETCH NEXT :lim ROWS ONLY";
+
+        var filter = NullIfBlank(q);
+        var inc = includeInactive ? "Y" : "N";
+
+        // "Chua gan don vi" va "loc theo 1 don vi" loai tru nhau: chon cai truoc thi bo cai sau,
+        // khong thi ra tap rong ma nguoi dung khong hieu tai sao.
+        var org = unassignedOnly ? null : NullIfBlank(bukrs);
+        var noorg = unassignedOnly ? "Y" : "N";
+
+        void Bind(OracleCommand cmd)
+        {
+            cmd.Parameters.Add("q", (object?)filter ?? DBNull.Value);
+            cmd.Parameters.Add("inc", inc);
+            cmd.Parameters.Add("bukrs", (object?)org ?? DBNull.Value);
+            cmd.Parameters.Add("noorg", noorg);
+        }
 
         await using var conn = await OpenAsync(ct);
 
-        var users = new List<UserListItem>();
-        await using (var cmd = new OracleCommand(sql, conn) { BindByName = true })
+        int total;
+        await using (var cmd = new OracleCommand(countSql, conn) { BindByName = true })
         {
-            cmd.Parameters.Add("q", (object?)NullIfBlank(q) ?? DBNull.Value);
-            cmd.Parameters.Add("inc", includeInactive ? "Y" : "N");
+            Bind(cmd);
+            total = Convert.ToInt32(await cmd.ExecuteScalarAsync(ct));
+        }
+
+        // Dem tong TRUOC de keo duoc trang vuot qua cuoi ve trang cuoi.
+        var (effPage, effSize, offset) = Paging.Normalize(page, pageSize, total);
+
+        var result = new PagedResult<UserListItem> { Page = effPage, PageSize = effSize, Total = total };
+        if (total == 0)
+            return result;
+
+        await using (var cmd = new OracleCommand(pageSql, conn) { BindByName = true })
+        {
+            Bind(cmd);
+            cmd.Parameters.Add("off", offset);
+            cmd.Parameters.Add("lim", effSize);
 
             await using var rd = await cmd.ExecuteReaderAsync(ct);
             while (await rd.ReadAsync(ct))
-                users.Add(ReadUser(rd));
+                result.Items.Add(ReadUser(rd));
         }
 
-        if (users.Count == 0)
-            return users;
+        if (result.Items.Count > 0)
+            await FillBukrsAndRolesAsync(conn, result.Items, ct);
 
-        await FillBukrsAndRolesAsync(conn, users, ct);
-        return users;
+        return result;
     }
 
     public async Task<UserListItem?> GetAsync(long id, CancellationToken ct)
@@ -101,35 +159,15 @@ public sealed class UserAdminService : IUserAdminService
         return user;
     }
 
-    public async Task<List<OrgItem>> ListOrgsAsync(CancellationToken ct)
-    {
-        // Doc phang roi dung cay o C#: neu don vi cha bi IS_ACTIVE='N' hoac PARENT_ID tro
-        // vao ban ghi khong con, CONNECT BY se lam mat ca nhanh con -> dropdown thieu don vi.
-        const string sql = @"
-            SELECT ID, BUKRS, BUTXT, ORG_TYPE, PARENT_ID
-            FROM PT_T001
-            WHERE IS_ACTIVE = 'Y'
-            ORDER BY NVL(SORT_ORDER, 0), BUKRS";
-
-        await using var conn = await OpenAsync(ct);
-        await using var cmd = new OracleCommand(sql, conn) { BindByName = true };
-
-        var flat = new List<OrgItem>();
-        await using var rd = await cmd.ExecuteReaderAsync(ct);
-        while (await rd.ReadAsync(ct))
-        {
-            flat.Add(new OrgItem
-            {
-                Id       = Convert.ToInt64(rd.GetValue(0)),
-                Bukrs    = rd.GetString(1),
-                Butxt    = rd.IsDBNull(2) ? string.Empty : rd.GetString(2),
-                OrgType  = rd.IsDBNull(3) ? null : rd.GetString(3),
-                ParentId = rd.IsDBNull(4) ? null : Convert.ToInt64(rd.GetValue(4))
-            });
-        }
-
-        return OrderAsTree(flat);
-    }
+    /// <summary>
+    /// Danh muc don vi lay tu NGUON CHUAN (<see cref="IOrgCatalogService"/> — mac dinh T001 cua
+    /// APEX), khong con doc PT_T001. Nho vay ma don vi o day luon trung voi ma ma APEX ghi vao
+    /// <c>H_DATA.BUKRS</c>, khong the lech.
+    /// <para>T001 khong co cot cha-con nen danh muc PHANG. <see cref="OrderAsTree"/> giu lai de
+    /// dung neu sau nay chuyen sang nguon co phan cap.</para>
+    /// </summary>
+    public Task<List<OrgItem>> ListOrgsAsync(CancellationToken ct)
+        => _catalog.ListAsync(ct);
 
     /// <summary>
     /// Sap xep cha truoc con va tinh <see cref="OrgItem.Level"/> de frontend thut le.
@@ -318,7 +356,11 @@ public sealed class UserAdminService : IUserAdminService
 
     /// <summary>
     /// Thay TOAN BO danh sach don vi cua user: xoa het roi ghi lai theo <paramref name="bukrsList"/>.
-    /// BUKRS khong co trong PT_T001 -> nem loi, khong bo qua im lang.
+    /// <para>Ma don vi duoc validate voi DANH MUC CHUAN (<see cref="IOrgCatalogService"/> — mac dinh
+    /// la T001 cua APEX), khong phai voi PT_T001. Ma la -> nem loi, khong bo qua im lang.</para>
+    /// <para>Ghi vao cot <c>PT_USER_ORG.BUKRS</c>. Van ghi kem <c>ORG_ID</c> khi ma do tinh co co
+    /// trong PT_T001, de backend Java (doc ORG_ID trong ScopeService) tiep tuc chay dung voi cac ma
+    /// no biet — xem db/01_pt_user_org_bukrs.sql.</para>
     /// </summary>
     private async Task ReplaceBukrsAsync(
         OracleConnection conn, OracleTransaction tx, long userId,
@@ -349,22 +391,41 @@ public sealed class UserAdminService : IUserAdminService
         if (wanted.Count == 0)
             return;
 
-        const string insSql = @"
-            INSERT INTO PT_USER_ORG (USER_ID, ORG_ID, IS_PRIMARY)
-            SELECT :uid, t.ID, :pri FROM PT_T001 t WHERE UPPER(t.BUKRS) = UPPER(:bukrs)";
+        // Validate voi danh muc chuan TRUOC khi ghi, de bao dung ma nao sai.
+        var valid = await _catalog.ListCodesAsync(ct);
+        var unknown = wanted.Where(b => !valid.Contains(b)).ToList();
+        if (unknown.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"Ma don vi khong co trong danh muc chuan: {string.Join(", ", unknown)}.");
+        }
+
+        var orgCols = await _schema.GetTableColumnsAsync(conn, "PT_USER_ORG", ct);
+        if (!orgCols.Contains("BUKRS"))
+        {
+            throw new InvalidOperationException(
+                "Bang PT_USER_ORG chua co cot BUKRS. Chay db/01_pt_user_org_bukrs.sql truoc.");
+        }
+
+        // ORG_ID chi ghi khi con cot do VA tra duoc ID trong PT_T001; khong tra duoc thi de NULL.
+        var withOrgId = orgCols.Contains("ORG_ID");
+        var insSql = withOrgId
+            ? @"INSERT INTO PT_USER_ORG (USER_ID, BUKRS, IS_PRIMARY, ORG_ID)
+                VALUES (:uid, :bukrs, :pri,
+                        (SELECT MIN(t.ID) FROM PT_T001 t WHERE UPPER(t.BUKRS) = UPPER(:bukrs)))"
+            : @"INSERT INTO PT_USER_ORG (USER_ID, BUKRS, IS_PRIMARY)
+                VALUES (:uid, :bukrs, :pri)";
 
         foreach (var bukrs in wanted)
         {
             await using var ins = new OracleCommand(insSql, conn)
                 { Transaction = tx, BindByName = true };
             ins.Parameters.Add("uid", userId);
+            ins.Parameters.Add("bukrs", bukrs);
             ins.Parameters.Add("pri",
                 string.Equals(bukrs, primary, StringComparison.OrdinalIgnoreCase) ? "Y" : "N");
-            ins.Parameters.Add("bukrs", bukrs);
 
-            if (await ins.ExecuteNonQueryAsync(ct) == 0)
-                throw new InvalidOperationException(
-                    $"BUKRS '{bukrs}' khong co trong danh muc don vi PT_T001.");
+            await ins.ExecuteNonQueryAsync(ct);
         }
     }
 
@@ -380,26 +441,38 @@ public sealed class UserAdminService : IUserAdminService
         return Convert.ToInt32(await cmd.ExecuteScalarAsync(ct)) > 0;
     }
 
-    /// <summary>Do 2 truy van gop (BUKRS, ROLE_CODE) vao danh sach user da doc.</summary>
+    /// <summary>Gioi han cua danh sach IN trong Oracle la 1000 phan tu -> chia lo.</summary>
+    private const int InListChunk = 1000;
+
+    /// <summary>
+    /// Do BUKRS + ROLE_CODE vao danh sach user da doc, LOC theo dung cac user do
+    /// (khong quet ca PT_USER_ORG / PT_USER_ROLE).
+    /// </summary>
     private static async Task FillBukrsAndRolesAsync(
         OracleConnection conn, List<UserListItem> users, CancellationToken ct)
     {
         var bukrs = users.ToDictionary(u => u.Id, _ => new List<string>());
         var roles = users.ToDictionary(u => u.Id, _ => new List<string>());
 
+        // {0} duoc thay bang danh sach bind :u0,:u1,... — chi sinh tu ID so nguyen doc tu DB,
+        // khong nhan gi tu client, nen khong phai mat phoi injection.
+        // Doc BUKRS THANG tu PT_USER_ORG, khong join PT_T001 nua — danh muc chuan gio la
+        // T001 cua APEX, PT_T001 chi con la di san cho backend Java.
         const string bukrsSql = @"
-            SELECT uo.USER_ID, t.BUKRS
-            FROM PT_USER_ORG uo JOIN PT_T001 t ON t.ID = uo.ORG_ID
-            ORDER BY uo.USER_ID, NVL(uo.IS_PRIMARY,'N') DESC, t.BUKRS";
+            SELECT uo.USER_ID, uo.BUKRS
+            FROM PT_USER_ORG uo
+            WHERE uo.USER_ID IN ({0}) AND uo.BUKRS IS NOT NULL
+            ORDER BY uo.USER_ID, NVL(uo.IS_PRIMARY,'N') DESC, uo.BUKRS";
 
         const string roleSql = @"
             SELECT ur.USER_ID, r.ROLE_CODE
             FROM PT_USER_ROLE ur JOIN PT_ROLE r ON r.ID = ur.ROLE_ID
-            WHERE r.IS_ACTIVE = 'Y'
+            WHERE r.IS_ACTIVE = 'Y' AND ur.USER_ID IN ({0})
             ORDER BY ur.USER_ID, r.ROLE_CODE";
 
-        await ReadPairsAsync(conn, bukrsSql, bukrs, ct);
-        await ReadPairsAsync(conn, roleSql, roles, ct);
+        var ids = users.Select(u => u.Id).ToList();
+        await ReadPairsAsync(conn, bukrsSql, ids, bukrs, ct);
+        await ReadPairsAsync(conn, roleSql, ids, roles, ct);
 
         foreach (var u in users)
         {
@@ -409,15 +482,26 @@ public sealed class UserAdminService : IUserAdminService
     }
 
     private static async Task ReadPairsAsync(
-        OracleConnection conn, string sql, Dictionary<long, List<string>> sink, CancellationToken ct)
+        OracleConnection conn, string sqlTemplate, List<long> userIds,
+        Dictionary<long, List<string>> sink, CancellationToken ct)
     {
-        await using var cmd = new OracleCommand(sql, conn) { BindByName = true };
-        await using var rd = await cmd.ExecuteReaderAsync(ct);
-        while (await rd.ReadAsync(ct))
+        for (var offset = 0; offset < userIds.Count; offset += InListChunk)
         {
-            var userId = Convert.ToInt64(rd.GetValue(0));
-            if (sink.TryGetValue(userId, out var list) && !rd.IsDBNull(1))
-                list.Add(rd.GetString(1).Trim());
+            var chunk = userIds.Skip(offset).Take(InListChunk).ToList();
+            var binds = string.Join(", ", chunk.Select((_, i) => $":u{i}"));
+
+            await using var cmd = new OracleCommand(string.Format(sqlTemplate, binds), conn)
+                { BindByName = true };
+            for (var i = 0; i < chunk.Count; i++)
+                cmd.Parameters.Add($"u{i}", chunk[i]);
+
+            await using var rd = await cmd.ExecuteReaderAsync(ct);
+            while (await rd.ReadAsync(ct))
+            {
+                var userId = Convert.ToInt64(rd.GetValue(0));
+                if (sink.TryGetValue(userId, out var list) && !rd.IsDBNull(1))
+                    list.Add(rd.GetString(1).Trim());
+            }
         }
     }
 

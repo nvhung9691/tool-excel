@@ -59,8 +59,7 @@ public sealed class UserAuthService : IUserAuthService
 
     private async Task<(UserInfo? user, string? hash)> LoadUserAsync(string username, CancellationToken ct)
     {
-        await using var conn = _factory.Create(_auth.UserConnId);
-        await conn.OpenAsync(ct);
+        await using var conn = await _factory.OpenAsync(_auth.UserConnId, ct);
 
         UserInfo? user = null;
         string? hash = null;

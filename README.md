@@ -42,14 +42,14 @@ Sửa `backend/appsettings.json` → section `Oracle`. Mỗi `connId` là một 
 }
 ```
 
-Ngoài ra cần `Auth:UserConnId` (connId trỏ tới schema `PT_APP` chứa `PT_USER`/`PT_T001`) và `Jwt:Key` (**≥ 32 byte** cho HS256). Mật khẩu thật + khoá JWT để trong `backend/appsettings.Local.json` (đã `.gitignore`), không commit:
+Ngoài ra cần `Auth:UserConnId` (connId trỏ tới schema `PT_APP` chứa `PT_USER`/`PT_USER_ORG`) và `Jwt:Key` (**≥ 32 byte** cho HS256). Mật khẩu thật + khoá JWT để trong `backend/appsettings.Local.json` (đã `.gitignore`), không commit:
 
 ```json
 {
   "Oracle": {
     "Connections": {
-      "PB9":   { "ConnectionString": "User Id=APEX;Password=...;Data Source=192.168.67.177:1521/ORCLPDB1;" },
-      "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=...;Data Source=192.168.67.177:1521/ORCLPDB1;" }
+      "PB9":   { "ConnectionString": "User Id=APEX;Password=...;Data Source=(DESCRIPTION=(TRANSPORT_CONNECT_TIMEOUT=3)(CONNECT_TIMEOUT=5)(RETRY_COUNT=0)(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.67.177)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCLPDB1)));" },
+      "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=...;Data Source=(DESCRIPTION=(TRANSPORT_CONNECT_TIMEOUT=3)(CONNECT_TIMEOUT=5)(RETRY_COUNT=0)(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.67.177)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCLPDB1)));" }
     }
   },
   "Jwt": { "Key": "chuoi_ngau_nhien_it_nhat_32_byte_o_day" }
@@ -57,6 +57,20 @@ Ngoài ra cần `Auth:UserConnId` (connId trỏ tới schema `PT_APP` chứa `PT
 ```
 
 Thiếu `Jwt:Key` thì app **dừng ngay lúc khởi động** kèm thông báo rõ, không phải chạy lên rồi mỗi request mới lỗi.
+
+### Đừng bỏ `TRANSPORT_CONNECT_TIMEOUT` khỏi connection string
+
+`Connection Timeout=...` của ODP.NET **không có tác dụng** khi host Oracle không tới được — đo thực tế là **60 giây** mỗi lời gọi. Với 60 đơn vị cùng đóng kỳ, DB nghẽn là hàng loạt request treo 60 giây và cạn connection pool.
+
+Ba tham số TNS ở trên là thứ duy nhất làm driver tự bỏ sớm — đo được **3,4 giây** thay vì 60:
+
+| Tham số | Ý nghĩa |
+|---|---|
+| `TRANSPORT_CONNECT_TIMEOUT=3` | Giới hạn bắt tay TCP |
+| `CONNECT_TIMEOUT=5` | Giới hạn cả lượt kết nối (gồm xác thực) |
+| `RETRY_COUNT=0` | Không thử lại, tránh nhân thời gian chờ lên nhiều lần |
+
+Ngoài ra `Oracle:OpenTimeoutSeconds` (mặc định 10) là **lưới an toàn ở tầng ứng dụng**, chặn cả trường hợp connection string bị khai thiếu TNS timeout. Đặt `0` để tắt.
 
 ## Chạy
 
@@ -74,7 +88,25 @@ dotnet run --project backend/ToolExcel.Api.csproj
 - Giao diện quản trị: `https://localhost:5001/`
 - Swagger: `https://localhost:5001/swagger`
 
+Repo **không có** `launchSettings.json`, nên `dotnet run` chạy ở môi trường `Production`. Swagger vì thế được bật bằng cấu hình chứ không theo môi trường:
+
+```json
+"Swagger": { "Enabled": true }
+```
+
+Mặc định trong `appsettings.json` là `true`. Trước khi lên PRD nên đặt `false` (Swagger liệt kê toàn bộ endpoint).
+
 `backend/wwwroot/` là **output build**, đã `.gitignore`. Nếu quên bước 1 thì API vẫn chạy bình thường, chỉ trang chủ trả về dòng nhắc chạy `npm run build` (chứ không phải 404 trắng).
+
+> ### ⚠️ `git pull` xong thì phải `npm run build` lại
+>
+> `wwwroot/` không nằm trong git, nên `git pull` **không** cập nhật giao diện. Bỏ qua bước build thì giao diện cũ sẽ gọi API mới và vỡ — ví dụ thật đã gặp: sau khi thêm phân trang, API đổi từ trả mảng sang trả `{ items, page, total }`, giao diện cũ vẫn `.map()` như mảng nên báo `TypeError: e.map is not a function`.
+>
+> Hai lớp phòng đã có sẵn:
+> - Backend **cảnh báo lúc khởi động** nếu bản build trong `wwwroot` cũ hơn mã nguồn trong `frontend/src` — nhìn log là biết.
+> - Frontend bắt được dạng dữ liệu lạ và hiện thông báo *"chạy npm run build rồi Ctrl+Shift+R"* thay vì vỡ trắng trang.
+>
+> Nhớ **Ctrl+Shift+R** (không phải F5) — F5 có thể vẫn dùng `index.html` trong cache, trỏ tới bundle cũ.
 
 Sửa giao diện thì tiện nhất là chạy 2 tiến trình — Vite dev server tự proxy `/api` sang API:
 
@@ -97,12 +129,54 @@ Mọi endpoint đều cần `Authorization: Bearer <token>` (`FallbackPolicy` ch
 
 Mật khẩu đọc từ `PT_USER.PASSWORD_HASH` theo định dạng Spring Security (`{bcrypt}...`, `{noop}...`). Khi tạo/đổi mật khẩu, API sinh hash `{bcrypt}$2a$10$...` — cùng dạng `BCryptPasswordEncoder` mặc định của Spring, nên tài khoản tạo ở bản C# vẫn đăng nhập được ở backend Java và ngược lại.
 
+## Danh mục đơn vị — một nguồn duy nhất
+
+Trước đây có **hai** danh mục độc lập nên lệch dần:
+
+| Hệ thống | Bảng | Nguồn |
+|---|---|---|
+| APEX (portal nhập liệu) | `T001` schema `APEX` — LOV `dm_bukrs` | Đồng bộ từ SAP |
+| API (màn quản trị) | `PT_T001` schema `PT_APP` | Nhập tay |
+
+`H_DATA.BUKRS` mà APEX ghi lấy từ `T001`, nhưng phần chặn `h_BUKRS` lại so với `PT_T001`. Hai bảng dùng mã khác nhau thì lớp chặn **không thể hoạt động** — gán mã kiểu `VP_TD` thì tài khoản gọi `h_BUKRS=2100` mãi mãi bị 403.
+
+**Giờ chỉ còn một nguồn:** API đọc trực tiếp `T001` qua `connId` — cùng bảng mà APEX dùng, nên không thể lệch.
+
+```json
+"Org": {
+  "ConnId": "PB9",          // connId trỏ tới schema chứa bảng danh mục
+  "Table": "T001",
+  "CodeColumn": "BUKRS",
+  "NameColumn": "BUTXT",
+  "ActiveColumn": "",       // để trống = không lọc
+  "ActiveValue": "Y"
+}
+```
+
+Tên bảng/cột được validate là định danh Oracle hợp lệ trước khi ghép vào SQL, và kiểm tồn tại qua `ALL_TAB_COLUMNS` để báo lỗi rõ ràng thay vì `ORA-00904`. Thiếu `NameColumn` thì danh mục chỉ có mã, không vỡ.
+
+`PT_USER_ORG` giờ lưu **thẳng mã `BUKRS`** thay vì `ORG_ID` trỏ tới `PT_T001`. Chạy migration một lần:
+
+```bash
+sqlplus PT_APP/<mật khẩu>@<tns> @db/01_pt_user_org_bukrs.sql
+```
+
+Script idempotent, không xoá cột `ORG_ID` (chỉ cho NULL và bỏ FK), và backfill `BUKRS` từ dữ liệu cũ. **Backend Java** dùng chung `PT_APP` vẫn đọc được `ORG_ID`: bản C# tiếp tục ghi kèm `ORG_ID` khi mã đó tình cờ có trong `PT_T001`. Xem phần đầu file SQL để biết chi tiết và cách rollback.
+
+### ⚠️ Mất tính năng "gán đơn vị cha được cả đơn vị con"
+
+`T001` **không có cột cha-con**, nên `UserScopeService` không còn `CONNECT BY` để mở rộng. Phạm vi giờ là **khớp chính xác từng mã** — muốn một tài khoản bao nhiều đơn vị thì gán đủ từng mã cho nó. Điều này cũng làm phạm vi khớp với bộ lọc theo đơn vị (trước đây hai chỗ hành xử khác nhau).
+
+### Mã đơn vị cũ không còn trong danh mục
+
+Mã đã gán mà không có trong `T001` được **đánh dấu đỏ kèm ⚠** trong cột `ĐƠN VỊ (BUKRS)`, tooltip nói rõ tài khoản đó sẽ bị 403. Dùng để soát lại sau khi chuyển nguồn danh mục. Khi **gán mới**, mã ngoài danh mục bị từ chối với thông báo liệt kê đúng mã sai.
+
 ### Chặn theo phạm vi đơn vị (BUKRS)
 
 Không chặn được ở bước lấy token: lúc đó server chỉ biết *ai đang gọi*, chưa biết sẽ hỏi **BUKRS nào** — `h_BUKRS` là tham số gửi kèm từng lần gọi. Nên việc chặn nằm ở endpoint:
 
 1. `POST /api/auth/token` trả kèm `allowedBukrs` để bên gọi biết phạm vi của mình trước.
-2. Mỗi lần gọi `/api/bieumau/{form}/export|import`, API so `h_BUKRS` với `PT_USER_ORG` của user, **mở rộng xuống toàn bộ cây con** (`CONNECT BY`): gán đơn vị cha thì được cả các đơn vị trực thuộc.
+2. Mỗi lần gọi `/api/bieumau/{form}/export|import`, API so `h_BUKRS` với `PT_USER_ORG.BUKRS` của user — **khớp chính xác từng mã**, không mở rộng cây con (xem mục Danh mục đơn vị).
 3. Ngoài phạm vi → **403** kèm danh sách `allowedBukrs`. Chưa gán đơn vị nào → cũng 403 (tập rỗng nghĩa là *không được gì*, khác `null` của `SUPER` nghĩa là *không giới hạn*).
 4. Vai trò `SUPER` bỏ qua toàn bộ kiểm tra này.
 
@@ -132,9 +206,62 @@ Vào bằng tài khoản có vai trò `ADMIN` hoặc `SUPER`. Làm được:
 - **Tạo người dùng** — username, mật khẩu (≥ 8 ký tự, hash ra `{bcrypt}`), họ tên, email, bật/tắt.
 - **Sửa / tắt** — tắt là `IS_ACTIVE='N'` (xoá mềm), không xoá bản ghi.
 - **Đặt lại mật khẩu** — không cần mật khẩu cũ.
-- **Gán đơn vị (BUKRS)** — chọn nhiều đơn vị từ cây `PT_T001`, đánh dấu một đơn vị chính (`IS_PRIMARY='Y'`). Lưu là **thay toàn bộ** danh sách cũ.
+- **Gán đơn vị (BUKRS)** — chọn nhiều đơn vị từ danh mục chuẩn `T001`, đánh dấu một đơn vị chính (`IS_PRIMARY='Y'`). Lưu là **thay toàn bộ** danh sách cũ; mã ngoài danh mục bị từ chối.
+- **Tìm kiếm, lọc theo đơn vị, phân trang** — xem mục dưới.
 
-Bảng DB tác động: `PT_USER` (ghi), `PT_USER_ORG` (ghi), `PT_T001` (chỉ đọc), `PT_USER_ROLE`/`PT_ROLE` (chỉ đọc để hiển thị).
+Bảng DB tác động: `PT_USER` (ghi), `PT_USER_ORG` (ghi), `T001` của APEX (chỉ đọc — danh mục đơn vị), `PT_USER_ROLE`/`PT_ROLE` (chỉ đọc để hiển thị).
+
+### Bộ lọc
+
+| Bộ lọc | Tham số | Ghi chú |
+|---|---|---|
+| Tên đăng nhập / họ tên | `q` | `LIKE` không phân biệt hoa thường, debounce 300ms ở UI |
+| Đơn vị | `bukrs` | Khớp **trực tiếp** trong `PT_USER_ORG` |
+| Chưa gán đơn vị | `unassignedOnly=true` | Bỏ qua `bukrs` nếu cùng truyền |
+| Hiện cả tài khoản đã tắt | `includeInactive` | Mặc định `true` |
+
+Lọc theo đơn vị là khớp **chính xác** mã trong `PT_USER_ORG` — giống hệt cách phần chặn `h_BUKRS` hoạt động. Nên lọc theo mã nào thì thấy đúng những tài khoản gọi được mã đó, không còn lệch giữa hai chỗ như bản trước.
+
+Lựa chọn **"— Chưa gán đơn vị —"** trong dropdown liệt kê các tài khoản chưa có `BUKRS` nào; đây chính là những tài khoản sẽ bị **403** khi gọi `/api/bieumau/*`, nên màn hình hiện cảnh báo kèm số lượng.
+
+### Phân trang
+
+Phân trang **ở phía server** (`OFFSET … FETCH NEXT` — cần Oracle 12c trở lên), không tải cả bảng về rồi cắt ở browser.
+
+```
+GET /api/admin/users?q=&includeInactive=true&bukrs=&unassignedOnly=false&page=1&pageSize=25
+```
+
+```json
+{ "items": [...], "page": 1, "pageSize": 25, "total": 312, "totalPages": 13 }
+```
+
+| Quy ước | Hành vi |
+|---|---|
+| `pageSize` mặc định 25, chọn được 25/50/100/200 | Chặn trần ở `Paging.MaxPageSize` = 200 |
+| `page` vượt quá trang cuối | Kéo về **trang cuối**, không trả bảng trống |
+| `page` ≤ 0 hoặc `pageSize` ≤ 0 | Về trang 1 / kích thước mặc định |
+| Đổi bất kỳ bộ lọc nào, hay `pageSize` | Tự về trang 1 |
+
+`page`/`pageSize` trong kết quả là giá trị **backend thực sự dùng** sau khi chuẩn hoá — frontend hiển thị theo đó, không theo tham số nó gửi đi.
+
+Ô tìm kiếm có **debounce 300ms**: gõ 6 ký tự chỉ sinh 1 lời gọi API thay vì 6. Số đếm `total` và danh sách dùng **chung một state đã tải xong**, nên trong lúc đang tải trang mới không xảy ra cảnh dòng tóm tắt ghi "301–312" mà bảng vẫn hiện dữ liệu trang cũ.
+
+## Tab "Thử API"
+
+Gọi thẳng endpoint từ trong giao diện, không cần curl hay Postman. Chỉ `ADMIN`/`SUPER` thấy tab này.
+
+| Khối | Dùng để |
+|---|---|
+| **Gọi bằng tài khoản nào** | Hiện phạm vi BUKRS của token đang dùng. Nhập tài khoản khác + mật khẩu → lấy token qua `POST /api/auth/token` và dùng token đó cho các lần gọi thử, **không phải đăng xuất** |
+| **Biểu mẫu** | Điền `FORM_CODE`, `connId`, `h_BUKRS`/`h_YEAR`/`h_PERIOD`/`h_DAY`/`h_WERKS` → xem trước URL → gọi `export` (nhận file `.xlsx` kèm nút Tải xuống) hoặc `import` (chọn file rồi upload) |
+| **Gọi endpoint bất kỳ** | Method + đường dẫn + body JSON, kèm vài mẫu nhanh bấm là điền sẵn |
+| **Kết quả** | Mã trạng thái, thời gian (ms), `Content-Type`, và body JSON đã format |
+
+Hai điểm khác biệt có chủ ý so với lời gọi bình thường của giao diện:
+
+- Gọi thử bị **401 không làm bạn bị đăng xuất** — 401 là kết quả cần xem, không phải sự cố phiên.
+- Cho phép dùng **token của tài khoản khác**, nên kiểm được phần chặn `h_BUKRS`: lấy token của một tài khoản không phải `SUPER`, gọi biểu mẫu với đơn vị chưa gán → phải nhận **403** kèm `allowedBukrs`.
 
 ### Chưa làm trong màn này
 
@@ -144,7 +271,7 @@ Bảng DB tác động: `PT_USER` (ghi), `PT_USER_ORG` (ghi), `PT_T001` (chỉ �
   SELECT u.ID, r.ID FROM PT_USER u, PT_ROLE r
   WHERE u.USERNAME = 'apiexport_vd' AND r.ROLE_CODE = 'APIEXPORT';
   ```
-- **Không quản lý danh mục đơn vị** `PT_T001` — dropdown chỉ đọc những bản ghi `IS_ACTIVE='Y'` có sẵn.
+- **Không quản lý danh mục đơn vị** — danh mục là `T001` của APEX, chỉ đọc. Sửa đơn vị thì sửa ở nguồn (SAP → `T001`).
 - **Không lọc theo phạm vi đơn vị của chính admin**: bản Java dùng `ScopeService` để admin đơn vị A chỉ thấy user đơn vị A; bản này mọi `ADMIN` thấy toàn bộ danh sách người dùng.
 
 ## 2 endpoint biểu mẫu
@@ -193,8 +320,9 @@ backend/Services/BieuMauConfigService.cs      Đọc DM_BIEU_MAU + DM_BIEU_MAU_C
 backend/Services/ExcelExportService.cs        Gọi PKG_DYNAMIC_EXPORT → dựng Excel
 backend/Services/ExcelImportService.cs        Đọc Excel → ghi H_DATA/T_DATA
 backend/Services/UserAuthService.cs           Đọc PT_USER/PT_ROLE để xác thực
-backend/Services/UserAdminService.cs          CRUD PT_USER + PT_USER_ORG, đọc cây PT_T001
-backend/Services/UserScopeService.cs          Phạm vi BUKRS (CONNECT BY) + BukrsScope.Decide()
+backend/Services/UserAdminService.cs          CRUD PT_USER + PT_USER_ORG (lưu thẳng BUKRS)
+backend/Services/OrgCatalogService.cs          Danh mục đơn vị chuẩn: đọc T001 của APEX
+backend/Services/UserScopeService.cs          Phạm vi BUKRS (khớp chính xác) + BukrsScope.Decide()
 backend/Services/PasswordVerifier.cs          Verify {bcrypt}/{noop} (định dạng Spring)
 backend/Services/PasswordHasher.cs            Sinh {bcrypt}$2a$10$... khi tạo/đổi mật khẩu
 backend/Services/JwtTokenService.cs           Phát JWT HS256, sub=username, claim roles
@@ -210,7 +338,7 @@ frontend/                                     React + Vite (build → backend/ww
 ## Test
 
 ```bash
-dotnet test          # từ thư mục gốc, qua ToolExcel.sln — 45 test
+dotnet test          # từ thư mục gốc, qua ToolExcel.sln — 67 test
 ```
 
 Phủ các chỗ dễ sai nhất, đều là hàm thuần không cần DB:
@@ -220,15 +348,17 @@ Phủ các chỗ dễ sai nhất, đều là hàm thuần không cần DB:
 | `PasswordVerifierTests.cs` | Verify `{bcrypt}`/`{noop}`, scheme lạ phải ném lỗi rõ ràng |
 | `PasswordHasherTests.cs` | Hash ra đúng `{bcrypt}$2a$10$`, round-trip, mật khẩu có dấu tiếng Việt |
 | `BukrsScopeTests.cs` | Logic chặn BUKRS — gồm bẫy "tập rỗng ≠ không giới hạn" |
-| `OrgTreeTests.cs` | Cây `PT_T001`: đơn vị mồ côi / vòng lặp cha-con không được làm mất bản ghi |
+| `OrgTreeTests.cs` | `OrderAsTree`: đơn vị mồ côi / vòng lặp cha-con không được làm mất bản ghi (giữ lại cho trường hợp sau này dùng nguồn danh mục có phân cấp) |
+| `PagingTests.cs` | `OFFSET` và số trang — `page` âm/0/vượt cuối, `pageSize` khổng lồ, tổng chia hết |
 | `HelpersTests.cs` | Parse `EXCEL_COL`, `HeaderParams.FromQuery` |
 
 ## TODO
 
 - **Gán vai trò (`PT_USER_ROLE`) từ màn quản trị** — hiện phải `INSERT` tay, xem mục trên.
-- Quản lý danh mục đơn vị `PT_T001` từ giao diện.
+- **Quyền theo từng biểu mẫu** — hiện tài khoản có `BUKRS` nào thì gọi được **mọi** biểu mẫu của đơn vị đó. Nếu cần giới hạn theo biểu thì phải thêm bảng map + màn cấu hình; nên quyết trước go-live.
+- Nếu cần lại cơ chế "đơn vị cha bao đơn vị con": phải có nguồn danh mục có cột phân cấp (`T001` không có), rồi bật lại việc mở rộng trong `UserScopeService`.
 - Lọc danh sách người dùng theo phạm vi đơn vị của admin (`ScopeService` như bản Java).
 - Xuất theo template gốc `PT_REPORT_TMPL` khi có (hiện luôn tự sinh từ config).
 - `get_data_dynamic_no_marc` / `get_data_kdt05` cho biểu đặc thù.
-- **Integration test với Oracle thật** — toàn bộ phần chạm DB (CRUD user, truy vấn phạm vi, 403 khi ngoài phạm vi) hiện chưa có test tự động nào phủ.
-- Khi Oracle không tới được, mỗi lời gọi treo **~60 giây** rồi mới trả 503 (`Connection Timeout` trong connection string không được ODP.NET tôn trọng). Cần đặt timeout riêng cho bước mở kết nối.
+- **Integration test với Oracle thật** — toàn bộ phần chạm DB (CRUD user, truy vấn phạm vi, 403 khi ngoài phạm vi, câu `OFFSET/FETCH`) hiện chưa có test tự động nào phủ.
+- Khi Oracle chết mà có ~60 lời gọi đồng thời, mỗi lời gọi mất 20–30 giây mới trả 503 (ODP.NET tuần tự hoá các lần mở kết nối trên pool đã chết). Muốn nhanh hơn cần circuit breaker.

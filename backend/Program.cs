@@ -1,6 +1,8 @@
+using System.IO.Compression;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using ToolExcel.Api.Data;
@@ -13,6 +15,24 @@ builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, relo
 
 // ---- Services / DI ----
 builder.Services.AddControllers();
+
+// Nen bundle JS/CSS cua frontend: 154 kB -> ~50 kB. Chi khai cac MIME text-based;
+// KHONG them .xlsx vi file Excel da la zip, nen lai chi ton CPU ma khong nho hon.
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true; // noi bo, va cac file nay khong chua bi mat gi
+    o.Providers.Add<BrotliCompressionProvider>();
+    o.Providers.Add<GzipCompressionProvider>();
+    o.MimeTypes = new[]
+    {
+        "text/html", "text/css", "text/javascript", "text/plain",
+        "application/javascript", "application/json", "image/svg+xml"
+    };
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(
+    o => o.Level = CompressionLevel.Optimal);
+builder.Services.Configure<GzipCompressionProviderOptions>(
+    o => o.Level = CompressionLevel.Optimal);
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
@@ -43,6 +63,7 @@ builder.Services.AddSwaggerGen(c =>
 // Cau hinh ket noi Oracle (nhieu nguon theo connId) + auth + jwt
 builder.Services.Configure<OracleConnectionOptions>(builder.Configuration.GetSection("Oracle"));
 builder.Services.Configure<AuthOptions>(builder.Configuration.GetSection("Auth"));
+builder.Services.Configure<OrgCatalogOptions>(builder.Configuration.GetSection("Org"));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 
 builder.Services.AddSingleton<IOracleConnectionFactory, OracleConnectionFactory>();
@@ -50,6 +71,7 @@ builder.Services.AddScoped<IBieuMauConfigService, BieuMauConfigService>();
 builder.Services.AddScoped<IExcelExportService, ExcelExportService>();
 builder.Services.AddScoped<IExcelImportService, ExcelImportService>();
 builder.Services.AddScoped<IUserAuthService, UserAuthService>();
+builder.Services.AddScoped<IOrgCatalogService, OrgCatalogService>();
 builder.Services.AddScoped<IUserAdminService, UserAdminService>();
 builder.Services.AddScoped<IUserScopeService, UserScopeService>();
 builder.Services.AddSingleton<IJwtTokenService, JwtTokenService>();
@@ -108,13 +130,22 @@ builder.Services.AddAuthorization(o =>
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+// Repo khong co launchSettings.json nen `dotnet run` chay o moi truong Production ->
+// truoc day khong the vao /swagger. Gio bat duoc bang cau hinh, khong phai doi moi truong:
+//   "Swagger": { "Enabled": true }
+// Mac dinh: bat o Development, tat o noi khac (Swagger liet ke toan bo endpoint).
+var swaggerEnabled = app.Configuration.GetValue("Swagger:Enabled", app.Environment.IsDevelopment());
+if (swaggerEnabled)
 {
     app.UseSwagger();
     app.UseSwaggerUI();
+    app.Logger.LogInformation("Swagger UI dang bat tai /swagger");
 }
 
 app.UseHttpsRedirection();
+
+// Phai dat TRUOC UseStaticFiles, khong thi file tinh da gui xong roi moi den luot nen.
+app.UseResponseCompression();
 
 // Frontend React da build (npm run build -> wwwroot). Static file la middleware chay truoc
 // routing nen KHONG bi FallbackPolicy doi token — dung vay, vi man dang nhap phai tai duoc
@@ -135,6 +166,8 @@ app.MapGet("/health", () => Results.Ok(new { status = "ok", time = DateTime.UtcN
 var indexPath = Path.Combine(app.Environment.WebRootPath ?? "wwwroot", "index.html");
 if (File.Exists(indexPath))
 {
+    WarnIfFrontendStale(app, indexPath);
+
     // SPA: duong dan la (vd /users khi F5) tra ve index.html cho React tu dinh tuyen.
     // AllowAnonymous vi day la endpoint (khac static file o tren) nen se bi FallbackPolicy chan.
     app.MapFallbackToFile("index.html").AllowAnonymous();
@@ -152,3 +185,42 @@ else
 }
 
 app.Run();
+
+/// <summary>
+/// Canh bao khi ban build trong wwwroot CU HON ma nguon frontend — tuc la vua git pull ma quen
+/// chay npm run build. Truong hop nay giao dien cu goi API moi va vo bang loi kho hieu kieu
+/// "e.map is not a function"; da gap that. Chi chay khi con thay ..\frontend (may dev/build);
+/// tren may chay that chi co wwwroot nen ham nay im lang.
+/// </summary>
+static void WarnIfFrontendStale(WebApplication app, string indexPath)
+{
+    try
+    {
+        var src = Path.Combine(app.Environment.ContentRootPath, "..", "frontend");
+        if (!Directory.Exists(Path.Combine(src, "src")))
+            return;
+
+        // Chi quet frontend/src + vai file goc — KHONG quet node_modules.
+        var files = Directory.EnumerateFiles(Path.Combine(src, "src"), "*", SearchOption.AllDirectories)
+            .Concat(new[] { "index.html", "package.json", "vite.config.ts" }
+                        .Select(f => Path.Combine(src, f))
+                        .Where(File.Exists));
+
+        var newestSource = files.Select(f => File.GetLastWriteTimeUtc(f)).DefaultIfEmpty().Max();
+        var built = File.GetLastWriteTimeUtc(indexPath);
+
+        if (newestSource > built)
+        {
+            app.Logger.LogWarning(
+                "Giao dien trong wwwroot CU HON ma nguon frontend ({Built:u} < {Source:u}). " +
+                "Chay 'cd frontend && npm run build' roi Ctrl+Shift+R, khong thi giao dien cu " +
+                "goi API moi va bao loi kho hieu.",
+                built, newestSource);
+        }
+    }
+    catch (Exception ex)
+    {
+        // Kiem tra tien nghi thoi — khong duoc lam app khong khoi dong duoc.
+        app.Logger.LogDebug(ex, "Khong kiem duoc do moi cua ban build frontend");
+    }
+}

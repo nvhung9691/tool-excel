@@ -49,7 +49,7 @@ public static class BukrsScope
 }
 
 /// <summary>
-/// Doc pham vi don vi tu PT_USER_ORG -> PT_T001 tren schema PT_APP.
+/// Doc pham vi don vi tu <c>PT_USER_ORG.BUKRS</c> tren schema PT_APP.
 /// Doc DB tuoi moi lan goi (khong nhet vao JWT) de thu quyen la co hieu luc ngay,
 /// khong phai cho token het han.
 /// </summary>
@@ -58,20 +58,17 @@ public sealed class UserScopeService : IUserScopeService
     /// <summary>Vai tro duoc bo qua moi kiem tra pham vi.</summary>
     public const string SuperRole = "SUPER";
 
-    // Mo rong xuong cay con: gan don vi cha thi duoc ca cac don vi truc thuoc.
+    // KHOP CHINH XAC tung ma, khong con mo rong xuong cay con.
+    // Truoc day pham vi doc qua PT_T001 + CONNECT BY nen gan don vi cha thi duoc ca don vi con.
+    // Danh muc chuan gio la T001 cua APEX — bang nay KHONG co cot cha-con — nen khong con gi de
+    // mo rong. Muon mot tai khoan bao nhieu don vi thi gan du tung ma cho no.
     private const string Sql = @"
-        SELECT t.BUKRS
-        FROM PT_T001 t
-        WHERE t.ID IN (
-            SELECT ID FROM PT_T001
-            START WITH ID IN (
-                SELECT uo.ORG_ID FROM PT_USER_ORG uo
-                JOIN PT_USER u ON u.ID = uo.USER_ID
-                WHERE UPPER(u.USERNAME) = UPPER(:u) AND u.IS_ACTIVE = 'Y'
-            )
-            CONNECT BY NOCYCLE PRIOR ID = PARENT_ID
-        )
-        AND t.IS_ACTIVE = 'Y'";
+        SELECT uo.BUKRS
+        FROM PT_USER_ORG uo
+        JOIN PT_USER u ON u.ID = uo.USER_ID
+        WHERE UPPER(u.USERNAME) = UPPER(:u)
+          AND u.IS_ACTIVE = 'Y'
+          AND uo.BUKRS IS NOT NULL";
 
     private readonly IOracleConnectionFactory _factory;
     private readonly AuthOptions _auth;
@@ -88,8 +85,7 @@ public sealed class UserScopeService : IUserScopeService
         if (roles.Any(r => string.Equals(r, SuperRole, StringComparison.OrdinalIgnoreCase)))
             return null;
 
-        await using var conn = _factory.Create(_auth.UserConnId);
-        await conn.OpenAsync(ct);
+        await using var conn = await _factory.OpenAsync(_auth.UserConnId, ct);
 
         await using var cmd = new OracleCommand(Sql, conn) { BindByName = true };
         cmd.Parameters.Add("u", username);

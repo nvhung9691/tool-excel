@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Oracle.ManagedDataAccess.Client;
+using ToolExcel.Api.Data;
 using ToolExcel.Api.Models;
 using ToolExcel.Api.Services;
 
@@ -47,7 +48,7 @@ public sealed class BieuMauController : ControllerBase
         {
             allowed = await _scope.GetAllowedBukrsAsync(username, roles, ct);
         }
-        catch (OracleException ex)
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
         {
             // Ham nay chay TRUOC khoi try cua endpoint nen phai tu bat, khong thi ra 500.
             return DbUnavailable(ex, "(kiem tra pham vi don vi)");
@@ -79,7 +80,7 @@ public sealed class BieuMauController : ControllerBase
     }
 
     /// <summary>Oracle chet/khong toi duoc -> 503, khong phai 500, va khong lot stack trace.</summary>
-    private IActionResult DbUnavailable(OracleException ex, string formCode)
+    private IActionResult DbUnavailable(Exception ex, string formCode)
     {
         _logger.LogError(ex, "Khong ket noi duoc CSDL khi xu ly form={FormCode}", formCode);
         return StatusCode(StatusCodes.Status503ServiceUnavailable,
@@ -115,7 +116,7 @@ public sealed class BieuMauController : ControllerBase
             _logger.LogWarning(ex, "Export loi form={FormCode}", formCode);
             return BadRequest(new { error = ex.Message });
         }
-        catch (OracleException ex)
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
         {
             return DbUnavailable(ex, formCode);
         }
@@ -154,7 +155,7 @@ public sealed class BieuMauController : ControllerBase
             _logger.LogWarning(ex, "Import loi form={FormCode}", formCode);
             return BadRequest(new ImportResult { Success = false, FormCode = formCode, Message = ex.Message });
         }
-        catch (OracleException ex)
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
         {
             return DbUnavailable(ex, formCode);
         }

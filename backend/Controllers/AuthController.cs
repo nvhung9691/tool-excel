@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Oracle.ManagedDataAccess.Client;
+using ToolExcel.Api.Data;
 using ToolExcel.Api.Models;
 using ToolExcel.Api.Services;
 
@@ -40,7 +41,7 @@ public sealed class AuthController : ControllerBase
             var (token, ttl) = _jwt.Issue(user);
             return Ok(new LoginResponse { User = user, AccessToken = token, ExpiresIn = ttl });
         }
-        catch (OracleException ex)
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
         {
             return DbUnavailable(ex);
         }
@@ -68,7 +69,7 @@ public sealed class AuthController : ControllerBase
                 AllowedBukrs = user.AllowedBukrs
             });
         }
-        catch (OracleException ex)
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
         {
             return DbUnavailable(ex);
         }
@@ -91,7 +92,7 @@ public sealed class AuthController : ControllerBase
             await FillScopeAsync(user, ct);
             return Ok(user);
         }
-        catch (OracleException ex)
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
         {
             return DbUnavailable(ex);
         }
@@ -131,7 +132,7 @@ public sealed class AuthController : ControllerBase
     }
 
     /// <summary>Oracle chet/khong toi duoc -> 503, khong phai 500, va khong lot stack trace.</summary>
-    private IActionResult DbUnavailable(OracleException ex)
+    private IActionResult DbUnavailable(Exception ex)
     {
         _logger.LogError(ex, "Khong ket noi duoc CSDL xac thuc");
         return StatusCode(StatusCodes.Status503ServiceUnavailable,

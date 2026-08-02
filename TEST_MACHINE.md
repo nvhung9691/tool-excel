@@ -27,12 +27,15 @@ không dùng GitHub Actions.
    ```json
    {
      "Oracle": { "Connections": {
-       "PB9":   { "ConnectionString": "User Id=APEX;Password=MAT_KHAU_APEX;Data Source=192.168.67.177:1521/ORCLPDB1;" },
-       "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=MAT_KHAU_PTAPP;Data Source=192.168.67.177:1521/ORCLPDB1;" }
+       "PB9":   { "ConnectionString": "User Id=APEX;Password=MAT_KHAU_APEX;Data Source=(DESCRIPTION=(TRANSPORT_CONNECT_TIMEOUT=3)(CONNECT_TIMEOUT=5)(RETRY_COUNT=0)(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.67.177)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCLPDB1)));" },
+       "PTAPP": { "ConnectionString": "User Id=PT_APP;Password=MAT_KHAU_PTAPP;Data Source=(DESCRIPTION=(TRANSPORT_CONNECT_TIMEOUT=3)(CONNECT_TIMEOUT=5)(RETRY_COUNT=0)(ADDRESS=(PROTOCOL=TCP)(HOST=192.168.67.177)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ORCLPDB1)));" }
      }},
      "Jwt": { "Key": "doi_thanh_chuoi_ngau_nhien_it_nhat_32_byte" }
    }
    ```
+
+   > Giữ nguyên 3 tham số `TRANSPORT_CONNECT_TIMEOUT` / `CONNECT_TIMEOUT` / `RETRY_COUNT` —
+   > không có chúng thì mỗi lời gọi treo 60 giây khi Oracle không tới được. Xem README.
    File này đã được `.gitignore` bỏ qua nên không lên GitHub.
 
    > `Jwt:Key` là **bắt buộc** — thiếu thì app dừng ngay lúc khởi động (smoke test sẽ FAIL).

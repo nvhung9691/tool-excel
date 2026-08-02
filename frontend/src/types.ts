@@ -28,6 +28,38 @@ export interface UserListItem {
   roles: string[]
 }
 
+/** Ket qua mot lan goi thu o tab "Thu API" — luon tra ve, khong bao gio nem. */
+export interface ProbeResult {
+  status: number
+  statusText: string
+  ms: number
+  contentType: string
+  /** Noi dung text (JSON da format neu la JSON). Null khi la file nhi phan. */
+  body: string | null
+  /** File tra ve (vd .xlsx) — de nut Tai xuong dung. */
+  file?: { name: string; size: number; url: string }
+}
+
+/** Bo loc danh sach nguoi dung. `bukrs` va `unassignedOnly` loai tru nhau. */
+export interface UserFilter {
+  q: string
+  includeInactive: boolean
+  /** Ma don vi da gan TRUC TIEP (khong mo rong xuong cay con). Rong = moi don vi. */
+  bukrs: string
+  /** Chi nguoi dung chua gan don vi nao. Khi bat, `bukrs` bi bo qua. */
+  unassignedOnly: boolean
+}
+
+/** Mot trang ket qua. `page`/`pageSize` la gia tri backend THUC SU dung (da chuan hoa). */
+export interface PagedResult<T> {
+  items: T[]
+  page: number
+  pageSize: number
+  /** Tong so ban ghi khop dieu kien loc, khong phai so ban ghi trong trang. */
+  total: number
+  totalPages: number
+}
+
 export interface OrgItem {
   id: number
   bukrs: string

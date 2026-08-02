@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api } from './api'
 import { BukrsPicker } from './BukrsPicker'
-import type { OrgItem, UserListItem } from './types'
+import type { OrgItem, PagedResult, UserListItem } from './types'
 
 type Dialog =
   | { kind: 'create' }
@@ -10,26 +10,57 @@ type Dialog =
   | { kind: 'password'; user: UserListItem }
   | null
 
+const PAGE_SIZES = [25, 50, 100, 200]
+
+/**
+ * Hai gia tri dac biet cua dropdown don vi. Dat tien to '#' vi BUKRS la
+ * VARCHAR2 ma nghiep vu — khong bao gio bat dau bang '#', nen khong the trung.
+ */
+const ORG_ALL = '#all'
+const ORG_NONE = '#none'
+
 export function UserAdmin() {
-  const [users, setUsers] = useState<UserListItem[]>([])
+  // Giu CA TRANG trong 1 state thay vi tach items/page/total: neu tach, tom tat doc tu `page`
+  // (doi ngay khi bam) con bang doc tu items (den sau) -> trong luc tai, tom tat ghi
+  // "301-312" ma bang van hien 25 dong cua trang truoc. Da gap dung loi nay.
+  const [data, setData] = useState<PagedResult<UserListItem> | null>(null)
   const [orgs, setOrgs] = useState<OrgItem[]>([])
   const [q, setQ] = useState('')
   const [includeInactive, setIncludeInactive] = useState(true)
+  const [orgPick, setOrgPick] = useState(ORG_ALL)
+  const [page, setPage] = useState(1)          // chi dung de GOI API
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [dialog, setDialog] = useState<Dialog>(null)
+
+  // Moi ky tu go vao o tim la 1 truy van DB -> cho go xong 300ms moi goi.
+  const [qDebounced, setQDebounced] = useState(q)
+  useEffect(() => {
+    const t = setTimeout(() => setQDebounced(q), 300)
+    return () => clearTimeout(t)
+  }, [q])
 
   const reload = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      setUsers(await api.listUsers(q, includeInactive))
+      const res = await api.listUsers({
+        q: qDebounced,
+        includeInactive,
+        bukrs: orgPick === ORG_ALL || orgPick === ORG_NONE ? '' : orgPick,
+        unassignedOnly: orgPick === ORG_NONE,
+      }, page, pageSize)
+      setData(res)
+      // Backend keo trang vuot qua cuoi ve trang cuoi -> dong bo lai de nut Truoc/Sau dung.
+      if (res.page !== page) setPage(res.page)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+      setData(null)
     } finally {
       setLoading(false)
     }
-  }, [q, includeInactive])
+  }, [qDebounced, includeInactive, orgPick, page, pageSize])
 
   useEffect(() => { void reload() }, [reload])
 
@@ -45,14 +76,48 @@ export function UserAdmin() {
     await reload()
   }
 
+  // Doi dieu kien loc thi phai ve trang 1, khong thi dang o trang 9 loc con 2 ket qua.
+  function changeFilter(apply: () => void) {
+    apply()
+    setPage(1)
+  }
+
+  // Ma don vi co trong danh muc CHUAN. Ma da gan cho user ma khong nam trong day la di san
+  // (vd PT_T001 cu dung ma khac T001) — phai danh dau, vi tai khoan do se bi 403.
+  const knownCodes = useMemo(
+    () => new Set(orgs.map(o => o.bukrs.toUpperCase())), [orgs])
+
+  // Moi thu hien tren UI deu doc tu `data` (trang DA tai), khong doc tu state dang cho.
+  const users = data?.items ?? []
+  const total = data?.total ?? 0
+  const totalPages = data?.totalPages ?? 1
+  const shownPage = data?.page ?? 1
+  const firstRow = total === 0 ? 0 : (shownPage - 1) * (data?.pageSize ?? pageSize) + 1
+  const lastRow = firstRow === 0 ? 0 : firstRow + users.length - 1
+
   return (
     <>
       <div className="toolbar">
         <input className="search" placeholder="Tìm theo tên đăng nhập / họ tên…"
-               value={q} onChange={e => setQ(e.target.value)} />
+               value={q} onChange={e => changeFilter(() => setQ(e.target.value))} />
+
+        <label className="inline">
+          Đơn vị
+          <select className="org-filter" value={orgPick}
+                  onChange={e => changeFilter(() => setOrgPick(e.target.value))}>
+            <option value={ORG_ALL}>Tất cả đơn vị</option>
+            <option value={ORG_NONE}>— Chưa gán đơn vị —</option>
+            {orgs.map(o => (
+              <option key={o.bukrs} value={o.bukrs}>
+                {' '.repeat(o.level * 2)}{o.bukrs} — {o.butxt}
+              </option>
+            ))}
+          </select>
+        </label>
+
         <label className="inline">
           <input type="checkbox" checked={includeInactive}
-                 onChange={e => setIncludeInactive(e.target.checked)} />
+                 onChange={e => changeFilter(() => setIncludeInactive(e.target.checked))} />
           Hiện cả tài khoản đã tắt
         </label>
         <span className="spacer" />
@@ -62,6 +127,13 @@ export function UserAdmin() {
       </div>
 
       {error && <div className="alert error">{error}</div>}
+
+      {orgPick === ORG_NONE && !loading && total > 0 && (
+        <div className="alert warn">
+          {total} tài khoản chưa được gán đơn vị nào — mọi lời gọi
+          {' '}<code>/api/bieumau/*</code> của các tài khoản này sẽ bị chặn <b>403</b>.
+        </div>
+      )}
 
       <div className="card">
         <table>
@@ -90,10 +162,18 @@ export function UserAdmin() {
                 <td>
                   {u.bukrs.length === 0
                     ? <span className="muted">chưa gán</span>
-                    : u.bukrs.map((b, i) => (
-                        <span key={b} className={'tag' + (i === 0 ? ' pri' : '')}
-                              title={i === 0 ? 'Đơn vị chính' : undefined}>{b}</span>
-                      ))}
+                    : u.bukrs.map((b, i) => {
+                        const known = knownCodes.has(b.toUpperCase())
+                        return (
+                          <span key={b}
+                                className={'tag' + (i === 0 ? ' pri' : '') + (known ? '' : ' stale')}
+                                title={!known
+                                  ? `Mã "${b}" không có trong danh mục đơn vị chuẩn — tài khoản sẽ bị 403 khi gọi biểu mẫu với mã này`
+                                  : i === 0 ? 'Đơn vị chính' : undefined}>
+                            {b}{!known && ' ⚠'}
+                          </span>
+                        )
+                      })}
                 </td>
                 <td>
                   {u.isActive
@@ -115,6 +195,36 @@ export function UserAdmin() {
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="pager">
+        <span className="muted">
+          {total === 0
+            ? 'Không có bản ghi'
+            : `Hiển thị ${firstRow}–${lastRow} / ${total} người dùng`}
+        </span>
+
+        <label className="inline">
+          Số dòng
+          <select value={pageSize}
+                  onChange={e => changeFilter(() => setPageSize(Number(e.target.value)))}>
+            {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+
+        <span className="spacer" />
+
+        <div className="pager-nav">
+          <button onClick={() => setPage(1)} disabled={loading || shownPage <= 1}
+                  title="Trang đầu">«</button>
+          <button onClick={() => setPage(shownPage - 1)}
+                  disabled={loading || shownPage <= 1}>Trước</button>
+          <span className="muted">Trang {shownPage} / {totalPages}</span>
+          <button onClick={() => setPage(shownPage + 1)}
+                  disabled={loading || shownPage >= totalPages}>Sau</button>
+          <button onClick={() => setPage(totalPages)} disabled={loading || shownPage >= totalPages}
+                  title="Trang cuối">»</button>
+        </div>
       </div>
 
       {dialog?.kind === 'create' &&

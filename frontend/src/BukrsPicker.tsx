@@ -43,7 +43,7 @@ export function BukrsPicker({ orgs, selected, primary, onChange }: Props) {
 
       {orgs.length === 0 && (
         <p className="muted pad">
-          Danh mục đơn vị <code>PT_T001</code> chưa có bản ghi nào đang bật.
+          Danh mục đơn vị chuẩn (<code>T001</code> của APEX) không trả về bản ghi nào.
         </p>
       )}
 
@@ -51,7 +51,7 @@ export function BukrsPicker({ orgs, selected, primary, onChange }: Props) {
         {shown.map(o => {
           const checked = selected.includes(o.bukrs)
           return (
-            <div key={o.id} className={'picker-row' + (checked ? ' on' : '')}>
+            <div key={o.bukrs} className={'picker-row' + (checked ? ' on' : '')}>
               <label style={{ paddingLeft: `${o.level * 16}px` }}>
                 <input type="checkbox" checked={checked} onChange={() => toggle(o.bukrs)} />
                 <b>{o.bukrs}</b>

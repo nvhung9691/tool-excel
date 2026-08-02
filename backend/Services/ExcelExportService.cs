@@ -39,8 +39,7 @@ public sealed class ExcelExportService : IExcelExportService
     public async Task<byte[]> ExportTemplateAsync(
         string? connId, string formCode, HeaderParams header, CancellationToken ct)
     {
-        using var conn = _factory.Create(connId);
-        await conn.OpenAsync(ct);
+        using var conn = await _factory.OpenAsync(connId, ct);
 
         var bieuMau = await _config.GetBieuMauAsync(conn, formCode, ct)
             ?? throw new KeyNotFoundException($"Khong tim thay bieu mau FORM_CODE='{formCode}'.");
