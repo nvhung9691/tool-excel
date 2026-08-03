@@ -165,7 +165,9 @@ Script idempotent, không xoá cột `ORG_ID` (chỉ cho NULL và bỏ FK), và 
 
 ### ⚠️ Mất tính năng "gán đơn vị cha được cả đơn vị con"
 
-`T001` **không có cột cha-con**, nên `UserScopeService` không còn `CONNECT BY` để mở rộng. Phạm vi giờ là **khớp chính xác từng mã** — muốn một tài khoản bao nhiều đơn vị thì gán đủ từng mã cho nó. Điều này cũng làm phạm vi khớp với bộ lọc theo đơn vị (trước đây hai chỗ hành xử khác nhau).
+`UserScopeService` không còn `CONNECT BY` để mở rộng. Phạm vi giờ là **khớp chính xác từng mã** — muốn một tài khoản bao nhiều đơn vị thì gán đủ từng mã cho nó. Điều này cũng làm phạm vi khớp với bộ lọc theo đơn vị (trước đây hai chỗ hành xử khác nhau).
+
+> `T001` **có** cột `PARENT` (`VARCHAR2(10)`, trỏ tới một `BUKRS` khác) — đã kiểm trên `192.168.67.177`. Danh mục phẳng là **lựa chọn có chủ ý**, không phải do bảng thiếu cột: `OrgItem.ParentId` là ID số nên không nhận được mã dạng chuỗi. Muốn dựng lại phân cấp thì phải nối cây theo **mã**, không phải theo ID. Ở môi trường hiện tại `T001` mới có 1 dòng (`2100`) với `PARENT` rỗng nên chưa mất gì.
 
 ### Mã đơn vị cũ không còn trong danh mục
 

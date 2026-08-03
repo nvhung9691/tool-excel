@@ -5,7 +5,7 @@
 #  Chay:  powershell -ExecutionPolicy Bypass -File ci_test_runner.ps1
 # ============================================================
 param(
-  [string]$RepoPath        = "D:\ci\tool-excel",   # noi da 'git clone' repo tren may test
+  [string]$RepoPath        = "C:\ci\tool-excel",   # noi da 'git clone' repo tren may test
   [int]   $IntervalSeconds = 60,                    # bao lau poll GitHub 1 lan
   [int]   $HealthPort      = 5080                    # cong chay thu API
 )

@@ -3,7 +3,7 @@
 #  Dang ky CI runner tu chay moi khi dang nhap Windows.
 #  Chay 1 lan:  powershell -ExecutionPolicy Bypass -File install_test_runner.ps1
 # ============================================================
-$RepoPath = "D:\ci\tool-excel"                 # sua cho khop noi clone repo
+$RepoPath = "C:\ci\tool-excel"                 # sua cho khop noi clone repo
 $TaskName = "ToolExcel CI Test Runner"
 $script   = Join-Path $RepoPath "ci_test_runner.ps1"
 

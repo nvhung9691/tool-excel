@@ -12,17 +12,23 @@ không dùng GitHub Actions.
 
 ## Chuẩn bị 1 lần trên máy .170
 
-1. Cài sẵn: **.NET SDK 8** và **git** (kiểm tra: `dotnet --version`, `git --version`).
+1. Cài sẵn: **.NET SDK 8 trở lên** và **git** (kiểm tra: `dotnet --version`, `git --version`).
+   Dự án target `net8.0`. SDK 9 build được, **miễn là có runtime 8** — kiểm bằng
+   `dotnet --list-runtimes`, phải thấy `Microsoft.NETCore.App 8.x`. Máy `.170` hiện dùng
+   **SDK 9.0.314 + runtime 8.0.27**, build và test đều sạch.
    Muốn có **giao diện quản trị** thì cài thêm **Node 20+** (`node --version`) — runner sẽ tự
    `npm run build`. Không có Node thì runner bỏ qua bước đó, API vẫn chạy nhưng không có giao diện.
-2. Clone repo về (chọn 1 thư mục, ví dụ `D:\ci`):
+2. Clone repo về (chọn 1 thư mục):
    ```bat
-   mkdir D:\ci & cd /d D:\ci
+   mkdir C:\ci & cd /d C:\ci
    git clone https://github.com/nvhung9691/tool-excel.git
    ```
    Lần clone đầu đăng nhập bằng **Personal Access Token** (như GIT_SETUP.md) để Windows nhớ
    credential cho các lần `git pull` sau.
-3. Tạo file `D:\ci\tool-excel\backend\appsettings.Local.json` (**chú ý: trong `backend\`**,
+
+   > Trên máy `.170` phải dùng `C:\ci`: ổ `D:` ở đó là **CD-ROM virtio-win**, không ghi được.
+   > Các lệnh dưới đây viết theo `C:\ci\tool-excel`; clone chỗ khác thì đổi đường dẫn cho khớp.
+3. Tạo file `C:\ci\tool-excel\backend\appsettings.Local.json` (**chú ý: trong `backend\`**,
    không phải thư mục gốc):
    ```json
    {
@@ -48,7 +54,7 @@ không dùng GitHub Actions.
 Chạy thử ngay (cửa sổ hiện log):
 
 ```bat
-cd /d D:\ci\tool-excel
+cd /d C:\ci\tool-excel
 powershell -ExecutionPolicy Bypass -File ci_test_runner.ps1
 ```
 
@@ -57,23 +63,24 @@ chạy API kiểm `/health`**. Kết quả ghi ở `ci_test.log` (dòng cuối l
 
 Đổi tham số nếu cần:
 ```bat
-powershell -ExecutionPolicy Bypass -File ci_test_runner.ps1 -RepoPath "D:\ci\tool-excel" -IntervalSeconds 30 -HealthPort 5080
+powershell -ExecutionPolicy Bypass -File ci_test_runner.ps1 -RepoPath "C:\ci\tool-excel" -IntervalSeconds 30 -HealthPort 5080
 ```
 
 ## Cho tự chạy nền mỗi khi bật máy
 
 ```bat
-cd /d D:\ci\tool-excel
+cd /d C:\ci\tool-excel
 powershell -ExecutionPolicy Bypass -File install_test_runner.ps1
 powershell -Command "Start-ScheduledTask -TaskName 'ToolExcel CI Test Runner'"
 ```
 
-> Nếu clone vào chỗ khác `D:\ci\tool-excel`, sửa biến `$RepoPath` ở đầu `install_test_runner.ps1`
-> và truyền `-RepoPath` cho `ci_test_runner.ps1`.
+> Cả `install_test_runner.ps1` và `ci_test_runner.ps1` mặc định `$RepoPath = "C:\ci\tool-excel"`.
+> Clone vào chỗ khác thì sửa biến đó ở đầu `install_test_runner.ps1` và truyền `-RepoPath`
+> cho `ci_test_runner.ps1`.
 
 ## "Test" gồm những gì
 
-- **Unit test** (`backend\ToolExcel.Tests`, 45 test): logic thuần, không cần DB — parse
+- **Unit test** (`backend\ToolExcel.Tests`, 67 test): logic thuần, không cần DB — parse
   `EXCEL_COL` (C### → số cột), cờ `HEADER='X'`, trích tham số `h_*`, hash `{bcrypt}`,
   logic chặn BUKRS, dựng cây đơn vị `PT_T001`.
 - **Frontend build**: `npm ci` + `npm run build` trong `frontend\` → ra `backend\wwwroot\`.
@@ -97,6 +104,14 @@ powershell -Command "Start-ScheduledTask -TaskName 'ToolExcel CI Test Runner'"
   ```
   Đổi `h_BUKRS` sang mã đơn vị **chưa gán** cho tài khoản đó → phải nhận **403** kèm
   danh sách `allowedBukrs`.
+
+  > **Tài khoản thử phân quyền**: `ci_enduser` / `Ci@12345` — không có vai trò nào, chỉ gán
+  > `BUKRS=2100`. Dùng để kiểm hai lớp chặn: gọi `/api/admin/*` phải ra **403**, và export với
+  > `h_BUKRS` khác `2100` cũng phải ra **403**. Đừng gán vai trò cho nó, mất tác dụng thử.
+  >
+  > Tài khoản `SUPER` **bỏ qua toàn bộ kiểm phạm vi BUKRS** (`UserScopeService.SuperRole`) — thấy
+  > nó export được mã lạ là **đúng thiết kế**, không phải lỗi. Muốn thử chặn thì phải dùng tài
+  > khoản không phải `SUPER`.
 
 - **Giao diện quản trị**: mở `http://localhost:5080/` bằng tài khoản có vai trò `ADMIN`/`SUPER`.
 

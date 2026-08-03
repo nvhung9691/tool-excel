@@ -60,8 +60,9 @@ public sealed class UserScopeService : IUserScopeService
 
     // KHOP CHINH XAC tung ma, khong con mo rong xuong cay con.
     // Truoc day pham vi doc qua PT_T001 + CONNECT BY nen gan don vi cha thi duoc ca don vi con.
-    // Danh muc chuan gio la T001 cua APEX — bang nay KHONG co cot cha-con — nen khong con gi de
-    // mo rong. Muon mot tai khoan bao nhieu don vi thi gan du tung ma cho no.
+    // Danh muc chuan gio la T001 cua APEX. T001 CO cot PARENT, nhung IOrgCatalogService co y
+    // tra ve danh muc PHANG (xem OrgCatalogService.ListAsync) nen o day khong mo rong theo cay.
+    // Muon mot tai khoan bao nhieu don vi thi gan du tung ma cho no.
     private const string Sql = @"
         SELECT uo.BUKRS
         FROM PT_USER_ORG uo

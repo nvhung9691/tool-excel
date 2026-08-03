@@ -113,9 +113,11 @@ public sealed class OrgCatalogService : IOrgCatalogService
 
             list.Add(new OrgItem
             {
-                // T001 khong co cot cha-con nen danh muc la PHANG: Id = 0, ParentId = null,
-                // Level = 0. Pham vi don vi vi vay la khop chinh xac tung ma, khong con
-                // "gan don vi cha duoc ca don vi con" nhu hoi dung PT_T001.
+                // T001 CO cot PARENT (VARCHAR2(10), tro toi mot BUKRS khac), nhung danh muc o
+                // day co y dung PHANG: Id = 0, ParentId = null, Level = 0 — vi OrgItem.ParentId
+                // la ID so, khong nhan duoc ma dang chuoi. Pham vi don vi vi vay la khop chinh
+                // xac tung ma, khong con "gan don vi cha duoc ca don vi con" nhu hoi dung PT_T001.
+                // Muon dung lai phan cap thi phai doc them PARENT va noi cay theo MA, khong phai ID.
                 Id = 0,
                 Bukrs = code,
                 Butxt = rd.IsDBNull(1) ? string.Empty : rd.GetString(1).Trim(),
