@@ -19,3 +19,7 @@ appsettings.*.Local.json
 
 ## Log của auto-push
 auto_push.log
+
+## Log của CI runner trên máy test — ci_test_runner.ps1 ghi vào chính thư mục repo,
+## không bỏ qua thì `git status` lấm lem và `git pull --ff-only` vướng
+ci_test.log
