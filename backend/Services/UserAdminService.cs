@@ -163,8 +163,9 @@ public sealed class UserAdminService : IUserAdminService
     /// Danh muc don vi lay tu NGUON CHUAN (<see cref="IOrgCatalogService"/> — mac dinh T001 cua
     /// APEX), khong con doc PT_T001. Nho vay ma don vi o day luon trung voi ma ma APEX ghi vao
     /// <c>H_DATA.BUKRS</c>, khong the lech.
-    /// <para>T001 khong co cot cha-con nen danh muc PHANG. <see cref="OrderAsTree"/> giu lai de
-    /// dung neu sau nay chuyen sang nguon co phan cap.</para>
+    /// <para>Danh muc tra ve PHANG. T001 co cot PARENT nhung <see cref="IOrgCatalogService"/>
+    /// khong doc — xem ghi chu trong <c>OrgCatalogService.ListAsync</c>. <see cref="OrderAsTree"/>
+    /// giu lai de dung neu sau nay noi cay theo PARENT.</para>
     /// </summary>
     public Task<List<OrgItem>> ListOrgsAsync(CancellationToken ct)
         => _catalog.ListAsync(ct);
@@ -251,8 +252,9 @@ public sealed class UserAdminService : IUserAdminService
             if (userCols.Contains("CREATED_BY"))
             {
                 cols.Add("CREATED_BY");
-                vals.Add(":by");
-                binds.Add(new OracleParameter("by", actor));
+                // Ten bind KHONG duoc trung tu khoa Oracle: ':by' lam ORA-01745.
+                vals.Add(":actor");
+                binds.Add(new OracleParameter("actor", actor));
             }
 
             var sql = $@"INSERT INTO PT_USER ({string.Join(", ", cols)})
@@ -410,17 +412,18 @@ public sealed class UserAdminService : IUserAdminService
         // ORG_ID chi ghi khi con cot do VA tra duoc ID trong PT_T001; khong tra duoc thi de NULL.
         var withOrgId = orgCols.Contains("ORG_ID");
         var insSql = withOrgId
+            // ':uid' la tu khoa Oracle (ham UID) -> ORA-01745; phai dat ten khac.
             ? @"INSERT INTO PT_USER_ORG (USER_ID, BUKRS, IS_PRIMARY, ORG_ID)
-                VALUES (:uid, :bukrs, :pri,
+                VALUES (:userid, :bukrs, :pri,
                         (SELECT MIN(t.ID) FROM PT_T001 t WHERE UPPER(t.BUKRS) = UPPER(:bukrs)))"
             : @"INSERT INTO PT_USER_ORG (USER_ID, BUKRS, IS_PRIMARY)
-                VALUES (:uid, :bukrs, :pri)";
+                VALUES (:userid, :bukrs, :pri)";
 
         foreach (var bukrs in wanted)
         {
             await using var ins = new OracleCommand(insSql, conn)
                 { Transaction = tx, BindByName = true };
-            ins.Parameters.Add("uid", userId);
+            ins.Parameters.Add("userid", userId);
             ins.Parameters.Add("bukrs", bukrs);
             ins.Parameters.Add("pri",
                 string.Equals(bukrs, primary, StringComparison.OrdinalIgnoreCase) ? "Y" : "N");
@@ -519,8 +522,9 @@ public sealed class UserAdminService : IUserAdminService
     {
         if (cols.Contains("UPDATED_BY"))
         {
-            sets.Add("UPDATED_BY = :by");
-            binds.Add(new OracleParameter("by", actor));
+            // Nhu tren: ':by' la tu khoa Oracle -> ORA-01745.
+            sets.Add("UPDATED_BY = :actor");
+            binds.Add(new OracleParameter("actor", actor));
         }
         if (cols.Contains("UPDATED_AT"))
             sets.Add("UPDATED_AT = SYSDATE");
