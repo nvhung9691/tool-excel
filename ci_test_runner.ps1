@@ -81,10 +81,24 @@ function Run-Pipeline {
       if ($code -eq 401) { $healthy = $true; break }
     }
   }
-  if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-
   if ($healthy) { Log "smoke PASS (/health = $seen; 401 = app da len, dang doi token)." }
   else          { Log "smoke FAIL (/health: $seen)."; $ok = $false }
+
+  # ---- kiem nhan endpoint that: chi chay khi app da len VA da cau hinh Smoke ----
+  # Day la buoc duy nhat cham Oracle. Unit test khong bat duoc loi kieu ORA-01745
+  # (ten bind trung tu khoa) vi no chi lo ra khi noi DB that.
+  if ($healthy -and (Test-Path "smoke_api.ps1")) {
+    Log "smoke API: kiem endpoint that..."
+    & powershell -NoProfile -ExecutionPolicy Bypass -File "smoke_api.ps1" `
+        -BaseUrl "http://localhost:$HealthPort" 2>&1 | ForEach-Object { Log "  $_" }
+    switch ($LASTEXITCODE) {
+      0       { Log "smoke API PASS." }
+      2       { Log "smoke API BO QUA (chua cau hinh muc 'Smoke' trong appsettings.Local.json)." }
+      default { Log "smoke API FAIL."; $ok = $false }
+    }
+  }
+
+  if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
 
   if ($ok) { Log "===== KET QUA: PASS =====" } else { Log "===== KET QUA: FAIL =====" }
   return $ok

@@ -83,6 +83,11 @@ powershell -Command "Start-ScheduledTask -TaskName 'ToolExcel CI Test Runner'"
 - **Unit test** (`backend\ToolExcel.Tests`, 67 test): logic thuần, không cần DB — parse
   `EXCEL_COL` (C### → số cột), cờ `HEADER='X'`, trích tham số `h_*`, hash `{bcrypt}`,
   logic chặn BUKRS, dựng cây đơn vị `PT_T001`.
+
+  > Không cần DB cũng có nghĩa là **không bắt được lỗi chỉ lộ ra khi nối Oracle thật**. Ví dụ
+  > thật: `ORA-01745` do đặt tên bind trùng từ khoá Oracle (`:by`, `:uid`) làm mọi lệnh tạo/sửa
+  > người dùng trả 503 — build vẫn xanh, 67/67 test vẫn pass. Loại đó thuộc về `smoke_api.ps1`
+  > bên dưới.
 - **Frontend build**: `npm ci` + `npm run build` trong `frontend\` → ra `backend\wwwroot\`.
   Bỏ qua nếu máy chưa có Node (ghi log, không tính là FAIL).
 - **Smoke test**: build xong chạy API, gọi `GET /health`.
@@ -90,24 +95,37 @@ powershell -Command "Start-ScheduledTask -TaskName 'ToolExcel CI Test Runner'"
   > `/health` nằm sau `FallbackPolicy` nên **không có token sẽ trả 401** — đó là app đã lên và
   > đang bảo vệ đúng. Runner tính **cả 200 và 401** là PASS; chỉ khi không nối được cổng mới FAIL.
 
-- **Chạy thử endpoint thật** (export/import gọi Oracle): cần bước 3 ở trên, và cần **token**
-  vì mọi endpoint đều đã được bảo vệ. Hiện làm **thủ công**:
+- **Kiểm nhận endpoint thật** (`smoke_api.ps1`) — bước **duy nhất** chạm Oracle. Runner tự gọi
+  sau khi `/health` xanh, khi API còn đang chạy. Nó lấy token rồi đối chiếu mã HTTP 9 ca: danh
+  mục đơn vị, tạo/sửa người dùng, gán `BUKRS` hợp lệ và không hợp lệ, 403 theo vai trò, 403 theo
+  phạm vi, 401 khi không có token.
+
+  Chạy tay (API phải đang chạy sẵn):
   ```bat
-  :: 1. lay token
-  curl -X POST http://localhost:5080/api/auth/token -H "Content-Type: application/json" ^
-       -d "{\"username\":\"apiexport\",\"password\":\"MAT_KHAU\"}"
-
-  :: 2. dung token goi bieu mau (thay <token> bang accessToken vua nhan)
-  curl -H "Authorization: Bearer <token>" ^
-       "http://localhost:5080/api/bieumau/KH18/export?connId=PB9&h_BUKRS=2100&h_YEAR=2026&h_PERIOD=7" ^
-       -o test.xlsx
+  powershell -ExecutionPolicy Bypass -File smoke_api.ps1 -BaseUrl http://localhost:5080
   ```
-  Đổi `h_BUKRS` sang mã đơn vị **chưa gán** cho tài khoản đó → phải nhận **403** kèm
-  danh sách `allowedBukrs`.
 
-  > **Tài khoản thử phân quyền**: `ci_enduser` / `Ci@12345` — không có vai trò nào, chỉ gán
-  > `BUKRS=2100`. Dùng để kiểm hai lớp chặn: gọi `/api/admin/*` phải ra **403**, và export với
-  > `h_BUKRS` khác `2100` cũng phải ra **403**. Đừng gán vai trò cho nó, mất tác dụng thử.
+  Mã thoát: `0` PASS · `1` FAIL · `2` **bỏ qua** (chưa cấu hình — runner không tính là FAIL).
+
+  **Mật khẩu không nằm trong repo.** Script đọc mục `Smoke` của `appsettings.Local.json`
+  (đã `.gitignore`); thiếu mục này thì nó bỏ qua toàn bộ:
+  ```json
+  "Smoke": {
+    "AdminUser": "admin",      "AdminPassword": "...",
+    "TestUser":  "ci_enduser", "TestPassword":  "...",
+    "Bukrs": "2100", "FormCode": "KH18", "Year": 2026, "Period": 7
+  }
+  ```
+
+  > `Smoke:Bukrs` phải là mã **có thật trong danh mục chuẩn** (`T001`), còn `-BadBukrs`
+  > (mặc định `KHONG_CO_MA_NAY`) là mã chắc chắn không có. Hai mã này là bản lề của các ca 400/403.
+
+  > **Tài khoản thử phân quyền**: `ci_enduser` — không có vai trò nào, chỉ gán `BUKRS=2100`.
+  > Đừng gán vai trò cho nó, mất tác dụng thử. Script **dùng lại** tài khoản này chứ không tạo
+  > mới mỗi lần, tránh rác trong `PT_USER` (API không có endpoint xoá cứng). Vì vậy đường
+  > `POST /api/admin/users` chỉ chạy khi DB chưa có tài khoản đó — không mất độ phủ, vì hai tên
+  > bind từng gây `ORA-01745` (`:actor`, `:userid`) đều bị chạm qua `PUT /users/{id}` và
+  > `PUT /users/{id}/bukrs` **mỗi lần chạy**.
   >
   > Tài khoản `SUPER` **bỏ qua toàn bộ kiểm phạm vi BUKRS** (`UserScopeService.SuperRole`) — thấy
   > nó export được mã lạ là **đúng thiết kế**, không phải lỗi. Muốn thử chặn thì phải dùng tài
