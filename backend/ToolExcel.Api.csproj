@@ -22,6 +22,11 @@
   -->
 
   <ItemGroup>
+    <!-- Logic sap xep dong khi export la logic thuan -> cho project test goi truc tiep -->
+    <InternalsVisibleTo Include="ToolExcel.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Oracle ADO.NET provider: goi PKG_DYNAMIC_EXPORT (ref cursor), ghi H_DATA/T_DATA -->
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.5.1" />
     <!-- Doc/ghi .xlsx (MIT license) -->

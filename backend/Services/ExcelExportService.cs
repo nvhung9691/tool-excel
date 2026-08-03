@@ -1,4 +1,5 @@
 using System.Data;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using ClosedXML.Excel;
 using Oracle.ManagedDataAccess.Client;
@@ -29,6 +30,13 @@ public sealed class ExcelExportService : IExcelExportService
     /// <summary>Dia chi o kieu 'B2' trong DM_BIEU_MAU_CONFIG.VITRI.</summary>
     private static readonly Regex CellRef =
         new(@"^([A-Za-z]{1,3})([1-9][0-9]{0,6})$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Cot quyet dinh thu tu dong, uu tien tu trai sang. Con tro cua PKG_DYNAMIC_EXPORT
+    /// KHONG dam bao thu tu, va moi bieu mau dung mot cot khac nhau: KTTC03 co LINEID
+    /// (SORT rong), KH18 co SORT (LINEID rong) — nen phai xet ca hai.
+    /// </summary>
+    private static readonly string[] OrderColumns = { "SORT", "LINEID" };
 
     private readonly IOracleConnectionFactory _factory;
     private readonly IBieuMauConfigService _config;
@@ -73,7 +81,8 @@ public sealed class ExcelExportService : IExcelExportService
         WriteHeaderRow(ws, headerRow, columns);
 
         var numberFormats = BuildNumberFormats(table, colIndexByName);
-        var lastDataRow = WriteDataRows(ws, dataStartRow, table, colIndexByName, numberFormats);
+        var orderedRows = OrderRows(table);
+        var lastDataRow = WriteDataRows(ws, dataStartRow, table, orderedRows, colIndexByName, numberFormats);
 
         ApplyFormatConditionalFormatting(ws, dataStartRow, lastDataRow);
         StyleTable(ws, headerRow, dataStartRow, lastDataRow, lastCol);
@@ -226,14 +235,61 @@ public sealed class ExcelExportService : IExcelExportService
         return formats;
     }
 
+    /// <summary>
+    /// Sap xep dong theo <see cref="OrderColumns"/>. Dong khong co gia tri thu tu xep xuong
+    /// cuoi; bang diem thi giu nguyen thu tu con tro tra ve (OrderBy cua LINQ on dinh).
+    /// </summary>
+    internal static List<DataRow> OrderRows(DataTable table)
+    {
+        var rows = table.Rows.Cast<DataRow>().ToList();
+
+        var keys = OrderColumns
+            .Where(table.Columns.Contains)
+            .Select(name => table.Columns[name]!)
+            .ToList();
+
+        if (keys.Count == 0) return rows;
+
+        IOrderedEnumerable<DataRow>? ordered = null;
+        foreach (var key in keys)
+        {
+            var k = key;
+            ordered = ordered is null
+                ? rows.OrderBy(r => SortKey(r, k))
+                : ordered.ThenBy(r => SortKey(r, k));
+        }
+
+        return ordered!.ToList();
+    }
+
+    /// <summary>
+    /// Khoa sap xep: rong xep cuoi (NullRank=1); so sanh theo SO neu doc duoc so,
+    /// nguoc lai so sanh theo chuoi va xep sau moi gia tri so.
+    /// </summary>
+    private static (int NullRank, decimal Number, string Text) SortKey(DataRow row, DataColumn col)
+    {
+        var v = row[col];
+        if (v is null || v == DBNull.Value) return (1, 0m, string.Empty);
+
+        if (v is decimal or double or float or int or long or short)
+            return (0, Convert.ToDecimal(v), string.Empty);
+
+        var s = v.ToString()?.Trim() ?? string.Empty;
+        if (s.Length == 0) return (1, 0m, string.Empty);
+
+        return decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture, out var n)
+            ? (0, n, string.Empty)
+            : (0, decimal.MaxValue, s);
+    }
+
     /// <summary>Rot du lieu; tra ve dong cuoi co du lieu.</summary>
     private static int WriteDataRows(
-        IXLWorksheet ws, int startRow, DataTable table, Dictionary<string, int> colIndexByName,
-        IReadOnlyDictionary<int, string> numberFormats)
+        IXLWorksheet ws, int startRow, DataTable table, IReadOnlyList<DataRow> rows,
+        Dictionary<string, int> colIndexByName, IReadOnlyDictionary<int, string> numberFormats)
     {
         var row = startRow;
 
-        foreach (DataRow dr in table.Rows)
+        foreach (var dr in rows)
         {
             foreach (DataColumn dc in table.Columns)
             {
