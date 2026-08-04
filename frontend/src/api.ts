@@ -1,5 +1,5 @@
 import type {
-  AssignBukrsRequest, CreateUserRequest, LoginResponse, OrgItem, PagedResult,
+  AssignBukrsRequest, BieuMauItem, CreateUserRequest, LoginResponse, OrgItem, PagedResult,
   ProbeResult, UpdateUserRequest, UserFilter, UserInfo, UserListItem,
 } from './types'
 
@@ -138,6 +138,9 @@ export const api = {
   me: () => request<UserInfo>('/api/auth/me'),
 
   listOrgs: () => request<OrgItem[]>('/api/admin/orgs'),
+
+  listBieuMau: (connId?: string) =>
+    request<BieuMauItem[]>(`/api/bieumau${connId ? `?connId=${encodeURIComponent(connId)}` : ''}`),
 
   listUsers: (f: UserFilter, page: number, pageSize: number) => {
     const p = new URLSearchParams({

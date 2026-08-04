@@ -17,15 +17,20 @@ public sealed class BieuMauController : ControllerBase
     private readonly IExcelExportService _export;
     private readonly IExcelImportService _import;
     private readonly IUserScopeService _scope;
+    private readonly IBieuMauConfigService _config;
+    private readonly IOracleConnectionFactory _factory;
     private readonly ILogger<BieuMauController> _logger;
 
     public BieuMauController(
         IExcelExportService export, IExcelImportService import, IUserScopeService scope,
+        IBieuMauConfigService config, IOracleConnectionFactory factory,
         ILogger<BieuMauController> logger)
     {
         _export = export;
         _import = import;
         _scope = scope;
+        _config = config;
+        _factory = factory;
         _logger = logger;
     }
 
@@ -85,6 +90,24 @@ public sealed class BieuMauController : ControllerBase
         _logger.LogError(ex, "Khong ket noi duoc CSDL khi xu ly form={FormCode}", formCode);
         return StatusCode(StatusCodes.Status503ServiceUnavailable,
             new { error = "Khong ket noi duoc CSDL. Lien he quan tri he thong." });
+    }
+
+    /// <summary>
+    /// Danh sach bieu mau (DM_BIEU_MAU) — de giao dien dung dropdown thay vi go tay FORM_CODE.
+    /// VD: GET /api/bieumau?connId=PB9
+    /// </summary>
+    [HttpGet]
+    public async Task<IActionResult> List([FromQuery] string? connId, CancellationToken ct)
+    {
+        try
+        {
+            await using var conn = await _factory.OpenAsync(connId, ct);
+            return Ok(await _config.ListBieuMauAsync(conn, ct));
+        }
+        catch (Exception ex) when (ex is OracleException or DbUnavailableException)
+        {
+            return DbUnavailable(ex, "(danh sach bieu mau)");
+        }
     }
 
     /// <summary>

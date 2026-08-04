@@ -10,6 +10,21 @@ public sealed class BieuMauInfo
     public int RowExcel { get; set; } = 1;
 }
 
+/// <summary>1 dong trong danh sach bieu mau — du de dung dropdown chon FORM_CODE.</summary>
+public sealed class BieuMauListItem
+{
+    public string FormCode { get; set; } = string.Empty;
+    public string? TenBieuMau { get; set; }
+
+    /// <summary>Dong bat dau vung du lieu. 0/null = chua khai (xem README, muc gioi han).</summary>
+    public int? RowExcel { get; set; }
+
+    public bool IsActive { get; set; } = true;
+
+    /// <summary>So dong cau hinh cot trong DM_BIEU_MAU_CONFIG. 0 = chua cau hinh cot nao.</summary>
+    public int SoCotCauHinh { get; set; }
+}
+
 /// <summary>1 dong cau hinh cot (DM_BIEU_MAU_CONFIG) — dieu khien mapping Excel &lt;-&gt; DB.</summary>
 public sealed class BieuMauColumnConfig
 {

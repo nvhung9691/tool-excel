@@ -6,6 +6,9 @@ namespace ToolExcel.Api.Services;
 
 public interface IBieuMauConfigService
 {
+    /// <summary>Danh sach bieu mau cho dropdown chon FORM_CODE.</summary>
+    Task<List<BieuMauListItem>> ListBieuMauAsync(OracleConnection conn, CancellationToken ct);
+
     Task<BieuMauInfo?> GetBieuMauAsync(OracleConnection conn, string formCode, CancellationToken ct);
     Task<List<BieuMauColumnConfig>> GetColumnsAsync(OracleConnection conn, string formCode, CancellationToken ct);
     Task<HashSet<string>> GetTableColumnsAsync(OracleConnection conn, string tableName, CancellationToken ct);
@@ -14,6 +17,41 @@ public interface IBieuMauConfigService
 /// <summary>Doc DM_BIEU_MAU + DM_BIEU_MAU_CONFIG de dieu khien mapping dong.</summary>
 public sealed class BieuMauConfigService : IBieuMauConfigService
 {
+    public async Task<List<BieuMauListItem>> ListBieuMauAsync(OracleConnection conn, CancellationToken ct)
+    {
+        // Kem SO_COT_CAU_HINH: bieu mau khong co dong nao trong DM_BIEU_MAU_CONFIG thi
+        // export ra file trong — hien so nay de nhin thay ngay thay vi thu roi doan.
+        const string sql = @"
+            SELECT m.FORM_CODE,
+                   MAX(m.TEN_BIEU_MAU)                                  AS TEN_BIEU_MAU,
+                   MAX(m.ROW_EXCEL)                                     AS ROW_EXCEL,
+                   MAX(NVL(m.IS_ACTIVE, 'Y'))                           AS IS_ACTIVE,
+                   (SELECT COUNT(*) FROM DM_BIEU_MAU_CONFIG c
+                     WHERE c.FORM_CODE = m.FORM_CODE)                    AS SO_COT_CAU_HINH
+            FROM   DM_BIEU_MAU m
+            WHERE  m.FORM_CODE IS NOT NULL
+            GROUP BY m.FORM_CODE
+            ORDER BY m.FORM_CODE";
+
+        using var cmd = new OracleCommand(sql, conn);
+
+        var list = new List<BieuMauListItem>();
+        using var rd = await cmd.ExecuteReaderAsync(ct);
+        while (await rd.ReadAsync(ct))
+        {
+            list.Add(new BieuMauListItem
+            {
+                FormCode     = rd.GetString(0),
+                TenBieuMau   = rd.IsDBNull(1) ? null : rd.GetString(1).Trim(),
+                RowExcel     = rd.IsDBNull(2) ? null : Convert.ToInt32(rd.GetValue(2)),
+                IsActive     = rd.IsDBNull(3) ||
+                               rd.GetString(3).Trim().Equals("Y", StringComparison.OrdinalIgnoreCase),
+                SoCotCauHinh = Convert.ToInt32(rd.GetValue(4)),
+            });
+        }
+        return list;
+    }
+
     public async Task<BieuMauInfo?> GetBieuMauAsync(OracleConnection conn, string formCode, CancellationToken ct)
     {
         const string sql = @"

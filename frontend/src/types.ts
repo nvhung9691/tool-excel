@@ -70,6 +70,17 @@ export interface OrgItem {
   level: number
 }
 
+/** Mot bieu mau trong DM_BIEU_MAU — du de dung dropdown chon FORM_CODE. */
+export interface BieuMauItem {
+  formCode: string
+  tenBieuMau: string | null
+  /** null hoac <=1 = chua khai dong bat dau du lieu; xem README muc gioi han. */
+  rowExcel: number | null
+  isActive: boolean
+  /** So dong trong DM_BIEU_MAU_CONFIG. 0 = chua cau hinh cot nao, export se ra file trong. */
+  soCotCauHinh: number
+}
+
 export interface CreateUserRequest {
   username: string
   password: string
